@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::{char, ops::Add};
 
 fn parse_input(input: Option<&str>) -> Vec<String> {
@@ -27,7 +28,7 @@ impl Grid {
         Self { length, data }
     }
 
-    fn get(&self, coord: Coord) -> Option<char> {
+    fn get(&self, coord: Coord) -> Option<Character> {
         if coord.x < 0 || coord.y < 0 {
             return None;
         }
@@ -35,11 +36,14 @@ impl Grid {
         if coord.x >= self.length as isize || coord.y >= self.length as isize {
             return None;
         }
-        Some(self.data[coord.y as usize * self.length + coord.x as usize])
+        Some(Character {
+            value: self.data[coord.y as usize * self.length + coord.x as usize],
+            coord,
+        })
     }
 
     // Get all neighbours clockwise
-    fn get_neighbours(&self, coord: Coord) -> Vec<Option<char>> {
+    fn get_neighbours(&self, coord: Coord) -> Vec<Option<Character>> {
         let mut neighbours = Vec::new();
         let neighbours_coords: Vec<Coord> = Vec::from([
             (1, 0).into(),
@@ -100,13 +104,14 @@ impl Number {
             let mut number_part_number = Vec::new();
             for character in number.iter() {
                 let neighbours = grid.get_neighbours(character.coord);
-                let neighbours: Vec<char> = neighbours.iter().filter_map(|o| *o).collect();
-                let is_character_part_number =
-                    neighbours.iter().any(|n| !(n.is_digit(10) || *n == '.'));
+                let neighbours: Vec<Character> = neighbours.iter().filter_map(|o| *o).collect();
+                let is_character_part_number = neighbours
+                    .iter()
+                    .any(|n| !(n.value.is_ascii_digit() || n.value == '.'));
                 // dbg!(&neighbours, &is_character_part_number);
                 number_part_number.push(is_character_part_number);
             }
-            if number_part_number.iter().any(|o| *o == true) {
+            if number_part_number.iter().any(|o| *o) {
                 part_number.push(number.clone());
             }
         }
@@ -114,18 +119,87 @@ impl Number {
         self.characters = part_number;
     }
 
-    fn get_part_numbers(&self) -> Vec<u32> {
+    fn get_gears(&self, grid: &Grid, gears: Vec<Character>) -> Vec<usize> {
+        let gears_neighbours = gears
+            .iter()
+            .map(|c| {
+                grid.get_neighbours(c.coord)
+                    .iter()
+                    .filter_map(|o| *o)
+                    .collect::<Vec<Character>>()
+            })
+            .collect::<Vec<Vec<Character>>>();
+        // dbg!(&gears_neighbours);
+
+        dbg!(&self.characters);
+
+        let gears_part_contacts = gears_neighbours
+            .iter()
+            .map(|g| {
+                g.iter()
+                    .flat_map(|gc| {
+                        self.characters
+                            .iter()
+                            .enumerate()
+                            .flat_map(move |(index, n)| {
+                                n.iter()
+                                    .filter_map(move |nc| {
+                                        if nc.coord == gc.coord {
+                                            Some(index)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<usize>>()
+                            })
+                            .collect::<Vec<usize>>()
+                    })
+                    .collect()
+            })
+            .collect::<Vec<Vec<usize>>>();
+
+        let gears_parts = gears_part_contacts
+            .iter()
+            .map(|g| {
+                let mut contact_parts = g.clone();
+                contact_parts.dedup();
+                contact_parts = contact_parts
+                    .iter()
+                    .map(|p| self.get_number(*p) as usize)
+                    .collect::<Vec<usize>>();
+                contact_parts
+            })
+            .collect::<Vec<Vec<usize>>>()
+            .into_iter()
+            .filter(|g| g.len() > 1) // remove gears not in contact with 2 parts
+            .collect::<Vec<Vec<usize>>>();
+
+        let gears_ratio = gears_parts
+            .iter()
+            .map(|g| g.iter().product::<usize>())
+            .collect::<Vec<usize>>();
+
+        dbg!(gears_part_contacts);
+        dbg!(gears_parts);
+        dbg!(gears_ratio)
+    }
+
+    fn get_numbers(&self) -> Vec<u32> {
         self.characters
             .iter()
-            .map(|v| {
-                v.iter()
-                    .map(|c| c.value.to_string())
-                    .collect::<Vec<String>>()
-                    .join("")
-                    .parse::<u32>()
-                    .unwrap()
-            })
+            .enumerate()
+            .map(|(index, _v)| self.get_number(index))
             .collect::<Vec<u32>>()
+    }
+
+    fn get_number(&self, index: usize) -> u32 {
+        self.characters[index]
+            .iter()
+            .map(|c| c.value.to_string())
+            .collect::<Vec<String>>()
+            .join("")
+            .parse::<u32>()
+            .unwrap()
     }
 }
 
@@ -138,13 +212,25 @@ struct Character {
 fn run(input: Vec<String>) -> u32 {
     let grid = Grid::new(input);
     let mut numbers: Number = Number::new();
+    let mut gears: Vec<Character> = Vec::new();
     for y in 0..grid.length {
         let mut characters: Vec<Character> = Vec::new();
         for x in 0..grid.length {
             let coord: Coord = (x as isize, y as isize).into();
             match grid.get(coord) {
-                Some(value) if value.is_digit(10) => {
-                    characters.push(Character { value, coord });
+                Some(character) if character.value == '*' => {
+                    gears.push(character);
+                    if !characters.is_empty() {
+                        numbers.characters.push(characters.clone());
+                    }
+                    characters.clear();
+                }
+
+                Some(character) if character.value.is_ascii_digit() => {
+                    characters.push(Character {
+                        value: character.value,
+                        coord,
+                    });
                 }
 
                 _ => {
@@ -155,15 +241,14 @@ fn run(input: Vec<String>) -> u32 {
                 }
             }
         }
+        // End of line, push remaining characters if we have some.
         if !characters.is_empty() {
             numbers.characters.push(characters.clone());
         }
     }
-    dbg!(&numbers);
-    numbers.filter_part_number(&grid);
-    let part_number = numbers.get_part_numbers();
-    dbg!(&part_number);
-    part_number.iter().sum()
+    // dbg!(&numbers);
+    let ratio = numbers.get_gears(&grid, gears);
+    ratio.iter().sum::<usize>() as u32
 }
 
 fn main() {
@@ -206,13 +291,55 @@ mod tests {
         dbg!(&input);
         let grid = Grid::new(input);
 
-        assert_eq!(grid.get((0, 0).into()), Some('4'));
-        assert_eq!(grid.get((2, 0).into()), Some('7'));
-        assert_eq!(grid.get((3, 0).into()), Some('.'));
-        assert_eq!(grid.get((9, 0).into()), Some('.'));
-        assert_eq!(grid.get((1, 9).into()), Some('6'));
-        assert_eq!(grid.get((5, 8).into()), Some('*'));
-        assert_eq!(grid.get((9, 9).into()), Some('.'));
+        assert_eq!(
+            grid.get((0, 0).into()),
+            Some(Character {
+                value: '4',
+                coord: (0, 0).into()
+            })
+        );
+        assert_eq!(
+            grid.get((2, 0).into()),
+            Some(Character {
+                value: '7',
+                coord: (2, 0).into()
+            })
+        );
+        assert_eq!(
+            grid.get((3, 0).into()),
+            Some(Character {
+                value: '.',
+                coord: (3, 0).into()
+            })
+        );
+        assert_eq!(
+            grid.get((9, 0).into()),
+            Some(Character {
+                value: '.',
+                coord: (9, 0).into()
+            })
+        );
+        assert_eq!(
+            grid.get((1, 9).into()),
+            Some(Character {
+                value: '6',
+                coord: (1, 9).into()
+            })
+        );
+        assert_eq!(
+            grid.get((5, 8).into()),
+            Some(Character {
+                value: '*',
+                coord: (5, 8).into()
+            })
+        );
+        assert_eq!(
+            grid.get((9, 9).into()),
+            Some(Character {
+                value: '.',
+                coord: (9, 9).into()
+            })
+        );
         assert_eq!(grid.get((10, 0).into()), None);
         assert_eq!(grid.get((10, 0).into()), None);
         assert_eq!(grid.get((-1, 0).into()), None);
@@ -249,9 +376,18 @@ mod tests {
         assert_eq!(
             grid.get_neighbours((0, 0).into()),
             vec![
-                Some('6'),
-                Some('.'),
-                Some('.'),
+                Some(Character {
+                    value: '6',
+                    coord: (1, 0).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (1, 1).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (0, 1).into()
+                }),
                 None,
                 None,
                 None,
@@ -264,14 +400,38 @@ mod tests {
         assert_eq!(
             grid.get_neighbours((2, 2).into()),
             vec![
-                Some('5'),
-                Some('.'),
-                Some('.'),
-                Some('.'),
-                Some('.'),
-                Some('.'),
-                Some('.'),
-                Some('*'),
+                Some(Character {
+                    value: '5',
+                    coord: (3, 2).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (3, 3).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (2, 3).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (1, 3).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (1, 2).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (1, 1).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (2, 1).into()
+                }),
+                Some(Character {
+                    value: '*',
+                    coord: (3, 1).into()
+                }),
             ]
         );
 
@@ -279,14 +439,38 @@ mod tests {
         assert_eq!(
             grid.get_neighbours((6, 3).into()),
             vec![
-                Some('.'),
-                Some('.'),
-                Some('.'),
-                Some('.'),
-                Some('.'),
-                Some('.'),
-                Some('6'),
-                Some('3'),
+                Some(Character {
+                    value: '.',
+                    coord: (7, 3).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (7, 4).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (6, 4).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (5, 4).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (5, 3).into()
+                }),
+                Some(Character {
+                    value: '.',
+                    coord: (5, 2).into()
+                }),
+                Some(Character {
+                    value: '6',
+                    coord: (6, 2).into()
+                }),
+                Some(Character {
+                    value: '3',
+                    coord: (7, 2).into()
+                }),
             ]
         );
     }
@@ -332,6 +516,6 @@ mod tests {
         )));
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 6756);
+        assert_eq!(answer, 31600);
     }
 }
