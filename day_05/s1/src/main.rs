@@ -112,11 +112,10 @@ fn get_location(data: &Data, src: usize) -> usize {
 
 fn get_map_location(map: &HashMap<Range<usize>, Range<usize>>, src: usize) -> usize {
     for range_src in map.keys() {
-        if range_src.contains(&src) {
-            let pos = range_src.clone().position(|p| p == src).unwrap();
-            let range_dst: Vec<usize> = map.get(range_src).unwrap().clone().collect();
-            return range_dst[pos];
-        } // src == dst if not in map
+        let pos = range_src.clone().position(|p| p == src);
+        if let Some(pos) = pos {
+            return map.get(range_src).unwrap().clone().nth(pos).unwrap();
+        }
     }
     src
 }
