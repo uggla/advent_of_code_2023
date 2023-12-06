@@ -1,100 +1,142 @@
-use std::collections::BTreeMap;
-use std::collections::HashSet;
+use std::{collections::HashMap, ops::Range};
 
-fn parse_input(input: Option<&str>) -> Vec<String> {
+use nom::{
+    bytes::complete::tag, character::complete::multispace1, multi::separated_list1, sequence::pair,
+    *,
+};
+use rayon::prelude::*;
+
+fn read_input(input: Option<&str>) -> String {
     let input = match input {
         None => include_str!("../../input.txt"),
         Some(x) => x,
     };
-    let output = input
-        .strip_suffix('\n')
-        .unwrap()
-        .split('\n')
-        .map(|o| o.to_string())
-        .collect::<Vec<String>>();
 
-    output
+    input.to_string()
 }
 
 #[derive(Debug)]
-struct Deck {
-    id: u32,
-    cards: Vec<u32>,
-    solutions: HashSet<u32>,
+struct Data {
+    seeds: Vec<usize>,
+    seed_to_soil: HashMap<Range<usize>, Range<usize>>,
+    soil_to_fertilizer: HashMap<Range<usize>, Range<usize>>,
+    fertilizer_to_water: HashMap<Range<usize>, Range<usize>>,
+    water_to_light: HashMap<Range<usize>, Range<usize>>,
+    light_to_temperature: HashMap<Range<usize>, Range<usize>>,
+    temperature_to_humidity: HashMap<Range<usize>, Range<usize>>,
+    humidity_to_location: HashMap<Range<usize>, Range<usize>>,
 }
 
-fn parse(input: Vec<String>) -> Vec<Deck> {
-    let mut deck = Vec::new();
-    for line in input {
-        let line_split = line.split(':').collect::<Vec<&str>>();
-        let id = line_split[0]
-            .replace("Card ", "")
-            .trim()
-            .parse::<u32>()
-            .unwrap();
-        let data = line_split[1].split('|').collect::<Vec<&str>>();
-        let cards = data[0]
-            .trim()
-            .split_whitespace()
-            .map(|x| x.trim().parse::<u32>().unwrap())
-            .collect::<Vec<u32>>();
-        let solutions = data[1]
-            .trim()
-            .split_whitespace()
-            .map(|x| x.trim().parse::<u32>().unwrap())
-            .collect::<HashSet<u32>>();
-        deck.push(Deck {
-            id,
-            cards,
-            solutions,
-        })
+fn parse_range(input: &str) -> IResult<&str, (Range<usize>, Range<usize>)> {
+    let (input, range) = separated_list1(tag(" "), nom::character::complete::u64)(input)?;
+    let range_src = range[1] as usize..(range[1] as usize + range[2] as usize);
+    let range_dst = range[0] as usize..(range[0] as usize + range[2] as usize);
+    Ok((input, (range_src, range_dst)))
+}
+
+fn parse_map(input: &str) -> IResult<&str, HashMap<Range<usize>, Range<usize>>> {
+    let (input, range_list) = separated_list1(tag("\n"), parse_range)(input)?;
+    let hash_map = range_list
+        .iter()
+        .map(|(src, dst)| (src.clone(), dst.clone()))
+        .collect::<HashMap<Range<usize>, Range<usize>>>();
+    Ok((input, hash_map))
+}
+
+fn parse(input: &str) -> IResult<&str, Data> {
+    let (input, seeds) = pair(
+        tag("seeds: "),
+        separated_list1(multispace1, nom::character::complete::u64),
+    )(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag("seed-to-soil map:\n")(input)?;
+    // let (input, _) = multispace1(input)?;
+    let (input, seed_to_soil) = parse_map(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag("soil-to-fertilizer map:\n")(input)?;
+    let (input, soil_to_fertilizer) = parse_map(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag("fertilizer-to-water map:\n")(input)?;
+    let (input, fertilizer_to_water) = parse_map(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag("water-to-light map:\n")(input)?;
+    let (input, water_to_light) = parse_map(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag("light-to-temperature map:\n")(input)?;
+    let (input, light_to_temperature) = parse_map(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag("temperature-to-humidity map:\n")(input)?;
+    let (input, temperature_to_humidity) = parse_map(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag("humidity-to-location map:\n")(input)?;
+    let (input, humidity_to_location) = parse_map(input)?;
+
+    let seeds = seeds.1.iter().map(|x| *x as usize).collect::<Vec<usize>>();
+    // // Seems we now have ranges
+    // let seeds = seeds
+    //     .1
+    //     .chunks(2)
+    //     .flat_map(|x| x[0] as usize..(x[0] + x[1]) as usize)
+    //     .collect::<Vec<_>>();
+    //
+    //     ^- above code allocate like crazy and consume almost all my 32GB.
+    //        so change the run part below to do this work functional style allowing streaming and
+    //        parrallelization.
+
+    Ok((
+        input,
+        Data {
+            seeds,
+            seed_to_soil,
+            soil_to_fertilizer,
+            fertilizer_to_water,
+            water_to_light,
+            light_to_temperature,
+            temperature_to_humidity,
+            humidity_to_location,
+        },
+    ))
+}
+
+fn run(input: String) -> usize {
+    let (_, data) = parse(&input).unwrap();
+    // dbg!(&data);
+
+    let locations = data
+        .seeds
+        .par_chunks(2)
+        .flat_map(|x| x[0]..(x[0] + x[1]))
+        .map(|seed| get_location(&data, seed))
+        .min()
+        .unwrap();
+
+    locations
+}
+
+fn get_location(data: &Data, src: usize) -> usize {
+    let mut dst = get_map_location(&data.seed_to_soil, src);
+    dst = get_map_location(&data.soil_to_fertilizer, dst);
+    dst = get_map_location(&data.fertilizer_to_water, dst);
+    dst = get_map_location(&data.water_to_light, dst);
+    dst = get_map_location(&data.light_to_temperature, dst);
+    dst = get_map_location(&data.temperature_to_humidity, dst);
+    get_map_location(&data.humidity_to_location, dst)
+}
+
+fn get_map_location(map: &HashMap<Range<usize>, Range<usize>>, src: usize) -> usize {
+    for range_src in map.keys() {
+        if range_src.start <= src && src < range_src.end {
+            let pos = src - range_src.start;
+            // return map.get(range_src).unwrap().clone().nth(pos).unwrap();
+            let range_dst = map.get(range_src).unwrap();
+            return range_dst.start + pos;
+        }
     }
-    dbg!(deck)
-}
-
-fn run(input: Vec<String>) -> usize {
-    let deck = parse(input);
-    let sol = deck
-        .iter()
-        .map(|d| {
-            d.cards.iter().fold((0usize, 0usize), |mut matches, c| {
-                //
-                if d.solutions.contains(&c) {
-                    matches.1 += 1;
-                }
-                (d.id as usize, matches.1)
-            })
-        })
-        .collect::<BTreeMap<usize, usize>>();
-
-    // Create initial hand by adding all original cards
-    let initial_hand = sol
-        .keys()
-        .map(|id| (*id, 1))
-        .collect::<BTreeMap<usize, usize>>();
-
-    let instances = sol
-        .iter()
-        // .enumerate()
-        .fold(initial_hand, |mut hand, (id, card_solutions)| {
-            let card_instance = *hand.get(&id).unwrap();
-
-            for copy_id in (id + 1)..(id + 1 + *card_solutions) {
-                hand.entry(copy_id).and_modify(|value| {
-                    *value += card_instance;
-                });
-            }
-            hand
-        });
-
-    dbg!(&sol);
-    dbg!(&instances);
-
-    instances.values().sum()
+    src
 }
 
 fn main() {
-    let input = parse_input(None);
+    let input = read_input(None);
 
     let answer = run(input);
 
@@ -116,18 +158,45 @@ mod tests {
 
     #[test]
     fn test_run() {
-        let input = parse_input(Some(indoc!(
+        let input = read_input(Some(indoc!(
             "
-            Card 1: 41 48 83 86 17 | 83 86  6 31 17  9 48 53
-            Card 2: 13 32 20 16 61 | 61 30 68 82 17 32 24 19
-            Card 3:  1 21 53 59 44 | 69 82 63 72 16 21 14  1
-            Card 4: 41 92 73 84 69 | 59 84 76 51 58  5 54 83
-            Card 5: 87 83 26 28 32 | 88 30 70 12 93 22 82 36
-            Card 6: 31 18 13 56 72 | 74 77 10 23 35 67 36 11
+            seeds: 79 14 55 13
+
+            seed-to-soil map:
+            50 98 2
+            52 50 48
+
+            soil-to-fertilizer map:
+            0 15 37
+            37 52 2
+            39 0 15
+
+            fertilizer-to-water map:
+            49 53 8
+            0 11 42
+            42 0 7
+            57 7 4
+
+            water-to-light map:
+            88 18 7
+            18 25 70
+
+            light-to-temperature map:
+            45 77 23
+            81 45 19
+            68 64 13
+
+            temperature-to-humidity map:
+            0 69 1
+            1 0 69
+
+            humidity-to-location map:
+            60 56 37
+            56 93 4
             "
         )));
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 30);
+        assert_eq!(answer, 46);
     }
 }
