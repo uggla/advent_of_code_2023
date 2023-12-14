@@ -41,6 +41,7 @@ struct Data {
 }
 
 impl Data {
+    #[allow(dead_code)]
     fn insert_row(&mut self, index: usize, new_row: Vec<char>) {
         if index <= self.grid.len() {
             self.grid.insert(index, new_row);
@@ -50,6 +51,7 @@ impl Data {
         self.length_y += 1;
     }
 
+    #[allow(dead_code)]
     fn insert_column(&mut self, index: usize, new_value: char) {
         for row in self.grid.iter_mut() {
             if index <= row.len() {
@@ -104,7 +106,7 @@ fn print_text_map(coordinates: &[((usize, usize), char)], width: usize, height: 
 }
 
 fn distance(x1: usize, y1: usize, x2: usize, y2: usize) -> usize {
-    println!("{} {} {} {}", x1, y1, x2, y2);
+    // println!("{} {} {} {}", x1, y1, x2, y2);
     let dx = (x2 as isize - x1 as isize).abs();
     let dy = (y2 as isize - y1 as isize).abs();
     // let dist_square = (dx.pow(2) + dy.pow(2)) as f64;
@@ -112,7 +114,13 @@ fn distance(x1: usize, y1: usize, x2: usize, y2: usize) -> usize {
     (dx + dy) as usize
 }
 
+#[cfg(not(test))]
+const EXPENSION: usize = 1000000;
+#[cfg(test)]
+const EXPENSION: usize = 10;
+
 fn run(input: String) -> usize {
+    #[allow(unused_mut)]
     let (_, mut data) = parse(&input).unwrap();
     dbg!(&data);
 
@@ -131,10 +139,14 @@ fn run(input: String) -> usize {
 
     dbg!(&insert_row_indices);
 
-    for (val, index) in insert_row_indices.into_iter().enumerate() {
-        data.insert_row(val + index, vec!['.'; data.length_x]);
-    }
-
+    // let mut i = 0;
+    // for (_val, index) in insert_row_indices.iter().enumerate() {
+    //     for _ in 1..EXPENSION {
+    //         data.insert_row(index + i, vec!['.'; data.length_x]);
+    //         i += 1;
+    //     }
+    // }
+    //
     let insert_col_indices = (0..data.length_x)
         .filter(|x| {
             data.grid
@@ -146,10 +158,13 @@ fn run(input: String) -> usize {
 
     dbg!(&insert_col_indices);
 
-    for (val, index) in insert_col_indices.into_iter().enumerate() {
-        data.insert_column(val + index, '.');
-    }
-
+    // i = 0;
+    // for (_val, index) in insert_col_indices.iter().enumerate() {
+    //     for _ in 1..EXPENSION {
+    //         data.insert_column(index + i, '.');
+    //         i += 1;
+    //     }
+    // }
     println!("Map");
     print_text_map(
         &data
@@ -171,43 +186,48 @@ fn run(input: String) -> usize {
     for y in data.grid.iter().enumerate() {
         for x in y.1.iter().enumerate() {
             if *x.1 == '#' {
-                galaxies.push((x.0, y.0))
+                // galaxies.push((x.0, y.0))
+
+                let xexp = [0]
+                    .iter()
+                    .chain(insert_col_indices.iter())
+                    .chain([data.length_x].iter())
+                    .cloned()
+                    .collect::<Vec<usize>>()
+                    .windows(2)
+                    .map(|i| i[0]..i[1])
+                    .enumerate()
+                    .find(|r| r.1.contains(&x.0))
+                    .map(|(i, _r)| i * (EXPENSION - 1) + x.0)
+                    .unwrap();
+
+                let yexp = [0]
+                    .iter()
+                    .chain(insert_row_indices.iter())
+                    .chain([data.length_y].iter())
+                    .cloned()
+                    .collect::<Vec<usize>>()
+                    .windows(2)
+                    .map(|i| i[0]..i[1])
+                    .enumerate()
+                    .find(|r| r.1.contains(&y.0))
+                    .map(|(i, _r)| i * (EXPENSION - 1) + y.0)
+                    .unwrap();
+
+                galaxies.push((xexp, yexp))
             }
         }
     }
 
     dbg!(&galaxies);
 
-    let travels = galaxies.iter().combinations(2).collect::<Vec<_>>();
-
-    dbg!(&travels.len());
-    // ....#........
-    // .........#...
-    // #............
-    // .............
-    // .............
-    // ........#....
-    // .#...........
-    // ............#
-    // .............
-    // .............
-    // .........#...
-    // #....#.......
-
-    dbg!(distance(1, 6, 5, 11));
-    dbg!(distance(4, 0, 9, 10));
-    dbg!(distance(0, 2, 12, 7));
-    dbg!(distance(0, 11, 5, 11));
+    let travels = galaxies
+        .iter()
+        .combinations(2)
+        .map(|t| distance(t[0].0, t[0].1, t[1].0, t[1].1))
+        .sum::<usize>();
 
     travels
-        .iter()
-        .map(|t| {
-            //
-            distance(t[0].0, t[0].1, t[1].0, t[1].1)
-        })
-        .sum::<usize>()
-
-    // todo!();
 }
 
 fn main() {
@@ -250,6 +270,6 @@ mod tests {
 
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 374);
+        assert_eq!(answer, 1030);
     }
 }
