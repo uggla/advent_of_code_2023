@@ -1,9 +1,7 @@
-use itertools::Itertools;
-use std::ops::Add;
-
 use nom::{
-    bytes::complete::take_until, character::complete::line_ending, multi::many1,
-    sequence::terminated, *,
+    character::complete::{line_ending, none_of},
+    multi::{many1, separated_list1},
+    *,
 };
 
 fn read_input(input: Option<&str>) -> String {
@@ -16,218 +14,107 @@ fn read_input(input: Option<&str>) -> String {
 }
 
 fn parse(input: &str) -> IResult<&str, Data> {
-    let (input, pipes) = many1(parse_line)(input)?;
+    let (input, patterns) = separated_list1(line_ending, parse_pattern)(input)?;
 
-    let data = Data {
-        length_x: pipes[0].len(),
-        length_y: pipes.len(),
-        grid: pipes,
-    };
+    let data = Data { patterns };
 
     Ok((input, data))
 }
 
+fn parse_pattern(input: &str) -> IResult<&str, Vec<Vec<char>>> {
+    let (input, pattern) = many1(parse_line)(input)?;
+    Ok((input, pattern))
+}
+
 fn parse_line(input: &str) -> IResult<&str, Vec<char>> {
-    let (input, pipe) = terminated(take_until("\n"), line_ending)(input)?;
-    let pipe = pipe.to_string().chars().collect();
-    Ok((input, pipe))
+    let (input, characters) = many1(none_of("\n"))(input)?;
+    let (input, _) = line_ending(input)?;
+    Ok((input, characters))
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct Data {
-    length_x: usize,
-    length_y: usize,
-    grid: Vec<Vec<char>>,
+    patterns: Vec<Vec<Vec<char>>>,
 }
 
-impl Data {
-    #[allow(dead_code)]
-    fn insert_row(&mut self, index: usize, new_row: Vec<char>) {
-        if index <= self.grid.len() {
-            self.grid.insert(index, new_row);
-        } else {
-            self.grid.push(new_row);
-        }
-        self.length_y += 1;
-    }
-
-    #[allow(dead_code)]
-    fn insert_column(&mut self, index: usize, new_value: char) {
-        for row in self.grid.iter_mut() {
-            if index <= row.len() {
-                row.insert(index, new_value);
-            } else {
-                row.push(new_value);
-            }
-        }
-        self.length_x += 1;
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SymAxis {
+    X,
+    Y,
 }
-
-#[derive(Debug, Eq, PartialEq, Clone, Copy, Ord, PartialOrd, Hash)]
-struct Coord {
-    x: isize,
-    y: isize,
-}
-
-impl From<(isize, isize)> for Coord {
-    fn from((x, y): (isize, isize)) -> Self {
-        Self { x, y }
-    }
-}
-
-impl Add<Coord> for Coord {
-    type Output = Coord;
-    fn add(self, rhs: Coord) -> Self::Output {
-        Self {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-        }
-    }
-}
-
-fn print_text_map(coordinates: &[((usize, usize), char)], width: usize, height: usize) {
-    let mut grid = vec![vec!['.'; width]; height];
-
-    // Place the points on the grid
-    for &((x, y), v) in coordinates {
-        if x < width && y < height {
-            grid[y][x] = v; // Assuming the origin (0,0) is at the top-left corner
-        }
-    }
-
-    // Print the grid row by row
-    for row in grid {
-        for cell in row {
-            print!("{}", cell);
-        }
-        println!(); // Newline at the end of each row
-    }
-}
-
-fn distance(x1: usize, y1: usize, x2: usize, y2: usize) -> usize {
-    // println!("{} {} {} {}", x1, y1, x2, y2);
-    let dx = (x2 as isize - x1 as isize).abs();
-    let dy = (y2 as isize - y1 as isize).abs();
-    // let dist_square = (dx.pow(2) + dy.pow(2)) as f64;
-    // dist_square.sqrt() as usize
-    (dx + dy) as usize
-}
-
-#[cfg(not(test))]
-const EXPENSION: usize = 1000000;
-#[cfg(test)]
-const EXPENSION: usize = 10;
 
 fn run(input: String) -> usize {
-    #[allow(unused_mut)]
-    let (_, mut data) = parse(&input).unwrap();
+    let (_, data) = parse(&input).unwrap();
     dbg!(&data);
 
-    let insert_row_indices = data
-        .grid
+    let sym_y = data
+        .patterns
+        .iter()
+        .map(|p| find_smudge(p, SymAxis::Y))
+        .collect::<Vec<_>>();
+
+    let sym_x = data
+        .patterns
+        .iter()
+        .map(|p| {
+            let pattern_transposed = (0..p[0].len())
+                .map(|x| p.iter().map(|y| y[x]).collect::<Vec<char>>())
+                .collect::<Vec<Vec<char>>>();
+            find_smudge(&pattern_transposed, SymAxis::X)
+        })
+        .collect::<Vec<_>>();
+
+    dbg!(&sym_x);
+    dbg!(&sym_y);
+
+    let output = data
+        .patterns
         .iter()
         .enumerate()
+        .flat_map(|(i, _p)| {
+            let mut merged_axis = sym_y[i].clone();
+            merged_axis.append(&mut sym_x[i].clone());
+            merged_axis
+        })
+        .map(|(axis, i)| match axis {
+            SymAxis::X => i + 1,
+            SymAxis::Y => (i + 1) * 100,
+        })
+        .collect::<Vec<_>>();
+
+    output.iter().sum::<usize>()
+}
+
+fn find_smudge(p: &Vec<Vec<char>>, axis: SymAxis) -> Vec<(SymAxis, usize)> {
+    p.iter()
+        .enumerate()
         .filter_map(|y| {
-            if y.1.iter().all(|x| *x == '.') {
-                Some(y.0)
+            let before = (0..=y.0)
+                .rev()
+                .flat_map(|i| p[i].to_vec())
+                .collect::<Vec<_>>();
+            let after = ((y.0 + 1)..p.len())
+                .flat_map(|i| p[i].to_vec())
+                .collect::<Vec<_>>();
+
+            let length = match before.len() < after.len() {
+                true => before.len(),
+                false => after.len(),
+            };
+
+            let diff = before[..length]
+                .iter()
+                .zip(after[..length].iter())
+                .filter(|t| t.0 != t.1)
+                .collect::<Vec<_>>();
+
+            if diff.len() == 1 {
+                Some((axis, y.0))
             } else {
                 None
             }
         })
-        .collect::<Vec<usize>>();
-
-    dbg!(&insert_row_indices);
-
-    // let mut i = 0;
-    // for (_val, index) in insert_row_indices.iter().enumerate() {
-    //     for _ in 1..EXPENSION {
-    //         data.insert_row(index + i, vec!['.'; data.length_x]);
-    //         i += 1;
-    //     }
-    // }
-    //
-    let insert_col_indices = (0..data.length_x)
-        .filter(|x| {
-            data.grid
-                .iter()
-                .map(|y| if y[*x] == '.' { Some('.') } else { None })
-                .all(|x| x == Some('.'))
-        })
-        .collect::<Vec<usize>>();
-
-    dbg!(&insert_col_indices);
-
-    // i = 0;
-    // for (_val, index) in insert_col_indices.iter().enumerate() {
-    //     for _ in 1..EXPENSION {
-    //         data.insert_column(index + i, '.');
-    //         i += 1;
-    //     }
-    // }
-    println!("Map");
-    print_text_map(
-        &data
-            .grid
-            .iter()
-            .enumerate()
-            .flat_map(|(y, r)| {
-                r.iter().enumerate().map(move |(x, v)| {
-                    //
-                    ((x, y), *v)
-                })
-            })
-            .collect::<Vec<((usize, usize), char)>>(),
-        data.length_x,
-        data.length_y,
-    );
-
-    let mut galaxies = Vec::new();
-    for y in data.grid.iter().enumerate() {
-        for x in y.1.iter().enumerate() {
-            if *x.1 == '#' {
-                // galaxies.push((x.0, y.0))
-
-                let xexp = [0]
-                    .iter()
-                    .chain(insert_col_indices.iter())
-                    .chain([data.length_x].iter())
-                    .cloned()
-                    .collect::<Vec<usize>>()
-                    .windows(2)
-                    .map(|i| i[0]..i[1])
-                    .enumerate()
-                    .find(|r| r.1.contains(&x.0))
-                    .map(|(i, _r)| i * (EXPENSION - 1) + x.0)
-                    .unwrap();
-
-                let yexp = [0]
-                    .iter()
-                    .chain(insert_row_indices.iter())
-                    .chain([data.length_y].iter())
-                    .cloned()
-                    .collect::<Vec<usize>>()
-                    .windows(2)
-                    .map(|i| i[0]..i[1])
-                    .enumerate()
-                    .find(|r| r.1.contains(&y.0))
-                    .map(|(i, _r)| i * (EXPENSION - 1) + y.0)
-                    .unwrap();
-
-                galaxies.push((xexp, yexp))
-            }
-        }
-    }
-
-    dbg!(&galaxies);
-
-    let travels = galaxies
-        .iter()
-        .combinations(2)
-        .map(|t| distance(t[0].0, t[0].1, t[1].0, t[1].1))
-        .sum::<usize>();
-
-    travels
+        .collect::<Vec<_>>()
 }
 
 fn main() {
@@ -255,21 +142,41 @@ mod tests {
     fn test_run1() {
         let input = read_input(Some(indoc!(
             "
-            ...#......
-            .......#..
-            #.........
-            ..........
-            ......#...
-            .#........
-            .........#
-            ..........
-            .......#..
-            #...#.....
-            "
+            #.##..##.
+            ..#.##.#.
+            ##......#
+            ##......#
+            ..#.##.#.
+            ..##..##.
+            #.#.##.#.
+
+            #...##..#
+            #....#..#
+            ..##..###
+            #####.##.
+            #####.##.
+            ..##..###
+            #....#..#
+            " //
+              // ###...###..
+              // ###...###..
+              // #.#.#.#...#
+              // ...#..##.#.
+              // ...#..#....
+              // .###.#.###.
+              // #..##.###..
+              // ..#..#.#.##
+              // ..#..#.#.##
+              // #..##.###..
+              // .###.#.###.
+              // ...#..#....
+              // ...#..##.#.
+              // #.#.#.#.#.#
+              // ###...###..
         )));
 
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 1030);
+        assert_eq!(answer, 400);
     }
 }
