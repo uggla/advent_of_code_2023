@@ -1,8 +1,6 @@
 use core::panic;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Add,
-};
+use itertools::Itertools;
+use std::{collections::HashMap, ops::Add};
 
 use nom::{
     bytes::complete::take_until, character::complete::line_ending, multi::many1,
@@ -30,7 +28,7 @@ fn parse(input: &str) -> IResult<&str, Data> {
                 .map(|x| (Coord::from((x.0 as isize, y.0 as isize)), *x.1))
                 .collect::<Vec<(Coord, char)>>()
         })
-        .collect::<BTreeMap<Coord, char>>();
+        .collect::<HashMap<Coord, char>>();
 
     let length_x = lines[0].len();
     let length_y = lines.len();
@@ -54,12 +52,11 @@ fn parse_line(input: &str) -> IResult<&str, Vec<char>> {
 struct Data {
     length_x: usize,
     length_y: usize,
-    grid: BTreeMap<Coord, char>,
+    grid: HashMap<Coord, char>,
 }
 
 impl Data {
     // Get all neighbours clockwise
-    #[allow(dead_code)]
     fn get_neighbours(&self, coord: Coord) -> Vec<Option<(Coord, char)>> {
         let neighbours_coords: Vec<Coord> =
             Vec::from([(1, 0).into(), (0, 1).into(), (-1, 0).into(), (0, -1).into()]);
@@ -94,37 +91,37 @@ impl Add<Coord> for Coord {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum TiltDirection {
+    East = 0,
+    South = 1,
+    West = 2,
+    North = 3,
+}
+
 fn run(input: String) -> usize {
+    const CYCLE_NB: usize = 10usize.pow(9);
     let (_, mut data) = parse(&input).unwrap();
-    dbg!(&data);
 
-    let rrocks = find_motif(&data, 'O');
-    let csrocks = find_motif(&data, '#');
+    let mut grid_sav: HashMap<Vec<char>, usize> = HashMap::new();
+    let mut iteration = CYCLE_NB;
 
-    dbg!(&rrocks);
-    dbg!(&csrocks);
-
-    for c in rrocks.iter() {
-        for y in (0..=c.y).rev() {
-            let rcoord = Coord::from((c.x, y));
-            let neighbours = data.get_neighbours(rcoord);
-            match neighbours.get(3).unwrap() {
-                Some((nc, v)) => match v {
-                    '.' => {
-                        // *c = *nc;
-                        *data.grid.get_mut(&rcoord).unwrap() = '.';
-                        *data.grid.get_mut(nc).unwrap() = 'O';
-                    }
-                    '#' => {
-                        break;
-                    }
-                    'O' => {
-                        break;
-                    }
-                    _ => panic!("Non expected char"),
-                },
-                None => {}
-            }
+    for i in 0..CYCLE_NB {
+        tilt_cycle(&mut data);
+        let key = data.grid.values().cloned().collect::<Vec<char>>();
+        if iteration == i {
+            break;
+        }
+        if grid_sav.contains_key(&key) && iteration == CYCLE_NB {
+            let cycle_length = i - grid_sav.get(&key).unwrap();
+            // A repeating cycle with a duration of cycle_length is
+            // identified. The objective is to calculate the state of the
+            // iteration that corresponds to the same state expected after
+            // 10^9 iterations.
+            iteration =
+                (i + cycle_length + CYCLE_NB % cycle_length - grid_sav.get(&key).unwrap()) - 1;
+        } else {
+            grid_sav.insert(key, i);
         }
     }
 
@@ -149,19 +146,127 @@ fn run(input: String) -> usize {
         nb_rocks.push(rocks_on_that_line);
     }
 
-    dbg!(&nb_rocks);
-
     let mut load = Vec::new();
     for (i, rocks) in nb_rocks.iter().enumerate() {
         let index = data.length_y - i;
         load.push(index * rocks.len());
     }
-
     dbg!(load.iter().sum::<usize>())
 }
 
-fn find_motif(data: &Data, motif: char) -> BTreeSet<Coord> {
-    let mut mcoords = (0..data.length_x)
+fn tilt_cycle(data: &mut Data) {
+    tilt(&find_motif(&*data, 'O'), data, &TiltDirection::North);
+    tilt(&find_motif(&*data, 'O'), data, &TiltDirection::West);
+    tilt(&find_motif(&*data, 'O'), data, &TiltDirection::South);
+    tilt(&find_motif(&*data, 'O'), data, &TiltDirection::East);
+}
+
+fn tilt(rrocks: &[Coord], data: &mut Data, direction: &TiltDirection) {
+    let sort_type = match direction {
+        TiltDirection::East => east_sort(rrocks),
+        TiltDirection::South => south_sort(rrocks),
+        TiltDirection::West => west_sort(rrocks),
+        TiltDirection::North => north_sort(rrocks),
+    };
+    for rcoord in sort_type.iter() {
+        for t_rcoord in translation_coord(rcoord, data, direction) {
+            let neighbours = data.get_neighbours(t_rcoord);
+            match neighbours.get(*direction as usize).unwrap() {
+                Some((nc, v)) => match v {
+                    '.' => {
+                        // *c = *nc;
+                        *data.grid.get_mut(&t_rcoord).unwrap() = '.';
+                        *data.grid.get_mut(nc).unwrap() = 'O';
+                    }
+                    '#' => {
+                        break;
+                    }
+                    'O' => {
+                        break;
+                    }
+                    _ => panic!("Non expected char"),
+                },
+                None => {}
+            }
+        }
+    }
+}
+
+fn translation_coord(rcoord: &Coord, data: &mut Data, direction: &TiltDirection) -> Vec<Coord> {
+    match direction {
+        TiltDirection::East => (rcoord.x..data.length_x as isize)
+            .map(|x| Coord::from((x, rcoord.y)))
+            .collect(),
+        TiltDirection::South => (rcoord.y..data.length_y as isize)
+            .map(|y| Coord::from((rcoord.x, y)))
+            .collect(),
+        TiltDirection::West => ((0..=rcoord.x).rev())
+            .map(|x| Coord::from((x, rcoord.y)))
+            .collect(),
+        TiltDirection::North => ((0..=rcoord.y).rev())
+            .map(|y| Coord::from((rcoord.x, y)))
+            .collect(),
+    }
+}
+
+fn west_sort(rrocks: &[Coord]) -> Vec<Coord> {
+    rrocks
+        .iter()
+        .sorted_by(|v1, v2| {
+            if v1.x == v2.x {
+                v2.y.cmp(&v1.y)
+            } else {
+                v1.x.cmp(&v2.x)
+            }
+        })
+        .copied()
+        .collect::<Vec<Coord>>()
+}
+
+fn south_sort(rrocks: &[Coord]) -> Vec<Coord> {
+    rrocks
+        .iter()
+        .sorted_by(|v1, v2| {
+            if v1.x == v2.x {
+                v2.y.cmp(&v1.y)
+            } else {
+                v1.x.cmp(&v2.x)
+            }
+        })
+        .copied()
+        .collect::<Vec<Coord>>()
+}
+
+fn east_sort(rrocks: &[Coord]) -> Vec<Coord> {
+    rrocks
+        .iter()
+        .sorted_by(|v1, v2| {
+            if v1.x == v2.x {
+                v1.y.cmp(&v2.y)
+            } else {
+                v2.x.cmp(&v1.x)
+            }
+        })
+        .copied()
+        .collect::<Vec<Coord>>()
+}
+
+fn north_sort(rrocks: &[Coord]) -> Vec<Coord> {
+    rrocks
+        .iter()
+        .sorted_by(|v1, v2| {
+            if v1.x == v2.x {
+                v1.y.cmp(&v2.y)
+            } else {
+                v1.x.cmp(&v2.x)
+            }
+        })
+        .copied()
+        .collect::<Vec<Coord>>()
+}
+
+fn find_motif(data: &Data, motif: char) -> Vec<Coord> {
+    (0..data.length_x)
         .flat_map(|x| {
             (0..data.length_y)
                 .filter_map(|y| {
@@ -173,10 +278,7 @@ fn find_motif(data: &Data, motif: char) -> BTreeSet<Coord> {
                 })
                 .collect::<Vec<Coord>>()
         })
-        .collect::<Vec<Coord>>();
-    mcoords.sort_by_key(|v| (v.x, v.y));
-
-    mcoords.into_iter().collect::<BTreeSet<Coord>>()
+        .collect::<Vec<Coord>>()
 }
 
 fn print_text_map(coordinates: &[(usize, usize, char)], width: usize, height: usize) {
@@ -237,6 +339,6 @@ mod tests {
         )));
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 136);
+        assert_eq!(answer, 64);
     }
 }
