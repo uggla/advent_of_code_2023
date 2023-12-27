@@ -1,6 +1,8 @@
 use core::panic;
-use itertools::Itertools;
-use std::{collections::HashMap, ops::Add};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    ops::Add,
+};
 
 use nom::{
     bytes::complete::take_until, character::complete::line_ending, multi::many1,
@@ -69,6 +71,254 @@ impl Data {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
+enum Direction {
+    Right = 0,
+    Down = 1,
+    Left = 2,
+    Up = 3,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+struct Beam {
+    direction: Direction,
+    pos: Coord,
+}
+
+impl Beam {
+    fn new(direction: Direction, pos: Coord) -> Self {
+        Self { direction, pos }
+    }
+
+    fn advence(
+        &mut self,
+        data: &Data,
+        energized_tiles: &mut HashSet<Coord>,
+        seen: &mut HashSet<(Coord, Direction)>,
+    ) -> Option<Vec<Beam>> {
+        let neighbors = data.get_neighbours(self.pos);
+        match self.direction {
+            Direction::Right => {
+                if let Some(nc) = neighbors[Direction::Right as usize] {
+                    match nc.1 {
+                        '|' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Right)) {
+                                seen.insert((nc.0, Direction::Right));
+                                return Some(vec![
+                                    Beam::new(Direction::Up, nc.0),
+                                    Beam::new(Direction::Down, nc.0),
+                                ]);
+                            }
+                        }
+                        '-' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Right)) {
+                                seen.insert((nc.0, Direction::Right));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '/' => {
+                            self.direction = Direction::Up;
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Right)) {
+                                seen.insert((nc.0, Direction::Right));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '\\' => {
+                            self.direction = Direction::Down;
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Right)) {
+                                seen.insert((nc.0, Direction::Right));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '.' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Right)) {
+                                seen.insert((nc.0, Direction::Right));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        _ => {
+                            panic!("Unexpected char: {}", nc.1)
+                        }
+                    }
+                }
+            }
+            Direction::Down => {
+                if let Some(nc) = neighbors[Direction::Down as usize] {
+                    match nc.1 {
+                        '-' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Down)) {
+                                seen.insert((nc.0, Direction::Down));
+                                return Some(vec![
+                                    Beam::new(Direction::Right, nc.0),
+                                    Beam::new(Direction::Left, nc.0),
+                                ]);
+                            }
+                        }
+                        '|' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Down)) {
+                                seen.insert((nc.0, Direction::Down));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '/' => {
+                            self.direction = Direction::Left;
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Down)) {
+                                seen.insert((nc.0, Direction::Down));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '\\' => {
+                            self.direction = Direction::Right;
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Down)) {
+                                seen.insert((nc.0, Direction::Down));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '.' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Down)) {
+                                seen.insert((nc.0, Direction::Down));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        _ => {
+                            panic!("Unexpected char: {}", nc.1)
+                        }
+                    }
+                }
+            }
+            Direction::Left => {
+                if let Some(nc) = neighbors[Direction::Left as usize] {
+                    match nc.1 {
+                        '|' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Left)) {
+                                seen.insert((nc.0, Direction::Left));
+                                return Some(vec![
+                                    Beam::new(Direction::Up, nc.0),
+                                    Beam::new(Direction::Down, nc.0),
+                                ]);
+                            }
+                        }
+                        '-' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Left)) {
+                                seen.insert((nc.0, Direction::Left));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '/' => {
+                            self.direction = Direction::Down;
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Left)) {
+                                seen.insert((nc.0, Direction::Left));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '\\' => {
+                            self.direction = Direction::Up;
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Left)) {
+                                seen.insert((nc.0, Direction::Left));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '.' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Left)) {
+                                seen.insert((nc.0, Direction::Left));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        _ => {
+                            panic!("Unexpected char: {}", nc.1)
+                        }
+                    }
+                }
+            }
+            Direction::Up => {
+                if let Some(nc) = neighbors[Direction::Up as usize] {
+                    match nc.1 {
+                        '-' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Up)) {
+                                seen.insert((nc.0, Direction::Up));
+                                return Some(vec![
+                                    Beam::new(Direction::Right, nc.0),
+                                    Beam::new(Direction::Left, nc.0),
+                                ]);
+                            }
+                        }
+                        '|' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Up)) {
+                                seen.insert((nc.0, Direction::Up));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '/' => {
+                            self.direction = Direction::Right;
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Up)) {
+                                seen.insert((nc.0, Direction::Up));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '\\' => {
+                            self.direction = Direction::Left;
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Up)) {
+                                seen.insert((nc.0, Direction::Up));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        '.' => {
+                            self.pos = nc.0;
+                            energized_tiles.insert(nc.0);
+                            if !seen.contains(&(nc.0, Direction::Up)) {
+                                seen.insert((nc.0, Direction::Up));
+                                return Some(vec![self.clone()]);
+                            }
+                        }
+                        _ => {
+                            panic!("Unexpected char: {}", nc.1)
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Ord, PartialOrd, Hash)]
 struct Coord {
     x: isize,
@@ -91,39 +341,9 @@ impl Add<Coord> for Coord {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum TiltDirection {
-    East = 0,
-    South = 1,
-    West = 2,
-    North = 3,
-}
-
 fn run(input: String) -> usize {
-    const CYCLE_NB: usize = 10usize.pow(9);
-    let (_, mut data) = parse(&input).unwrap();
-
-    let mut grid_sav: HashMap<Vec<char>, usize> = HashMap::new();
-    let mut iteration = CYCLE_NB;
-
-    for i in 0..CYCLE_NB {
-        tilt_cycle(&mut data);
-        let key = data.grid.values().cloned().collect::<Vec<char>>();
-        if iteration == i {
-            break;
-        }
-        if grid_sav.contains_key(&key) && iteration == CYCLE_NB {
-            let cycle_length = i - grid_sav.get(&key).unwrap();
-            // A repeating cycle with a duration of cycle_length is
-            // identified. The objective is to calculate the state of the
-            // iteration that corresponds to the same state expected after
-            // 10^9 iterations.
-            iteration =
-                (i + cycle_length + CYCLE_NB % cycle_length - grid_sav.get(&key).unwrap()) - 1;
-        } else {
-            grid_sav.insert(key, i);
-        }
-    }
+    let (_, data) = parse(&input).unwrap();
+    // dbg!(&data);
 
     print_text_map(
         &data
@@ -135,150 +355,56 @@ fn run(input: String) -> usize {
         data.length_y,
     );
 
-    let mut nb_rocks = Vec::new();
-    for y in 0..data.length_y {
-        let mut rocks_on_that_line = Vec::new();
-        for x in 0..data.length_x {
-            if data.grid.get(&(Coord::from((x as isize, y as isize)))) == Some(&'O') {
-                rocks_on_that_line.push(Coord::from((x as isize, y as isize)));
-            }
-        }
-        nb_rocks.push(rocks_on_that_line);
-    }
+    let left_tiles =
+        (0..data.length_y).map(|r| Beam::new(Direction::Right, Coord::from((0isize, r as isize))));
+    let right_tiles = (0..data.length_y).map(|r| {
+        Beam::new(
+            Direction::Left,
+            Coord::from((data.length_x as isize - 1, r as isize)),
+        )
+    });
+    let up_tiles =
+        (0..data.length_x).map(|c| Beam::new(Direction::Down, Coord::from((c as isize, 0isize))));
+    let down_tiles = (0..data.length_x).map(|c| {
+        Beam::new(
+            Direction::Up,
+            Coord::from((c as isize, data.length_y as isize - 1)),
+        )
+    });
 
-    let mut load = Vec::new();
-    for (i, rocks) in nb_rocks.iter().enumerate() {
-        let index = data.length_y - i;
-        load.push(index * rocks.len());
-    }
-    dbg!(load.iter().sum::<usize>())
+    let et: Vec<usize> = left_tiles
+        .chain(right_tiles)
+        .chain(up_tiles)
+        .chain(down_tiles)
+        .map(|b| {
+            let mut beams: VecDeque<Beam> = VecDeque::new();
+            beams.push_back(b.clone());
+            find_energized_tiles(beams, &data)
+        })
+        .collect();
+
+    dbg!(*et.iter().max().unwrap())
 }
 
-fn tilt_cycle(data: &mut Data) {
-    tilt(&find_motif(&*data, 'O'), data, &TiltDirection::North);
-    tilt(&find_motif(&*data, 'O'), data, &TiltDirection::West);
-    tilt(&find_motif(&*data, 'O'), data, &TiltDirection::South);
-    tilt(&find_motif(&*data, 'O'), data, &TiltDirection::East);
-}
+fn find_energized_tiles(mut beams: VecDeque<Beam>, data: &Data) -> usize {
+    let mut energized_tiles: HashSet<Coord> = HashSet::new();
+    let mut seen: HashSet<(Coord, Direction)> = HashSet::new();
 
-fn tilt(rrocks: &[Coord], data: &mut Data, direction: &TiltDirection) {
-    let sort_type = match direction {
-        TiltDirection::East => east_sort(rrocks),
-        TiltDirection::South => south_sort(rrocks),
-        TiltDirection::West => west_sort(rrocks),
-        TiltDirection::North => north_sort(rrocks),
-    };
-    for rcoord in sort_type.iter() {
-        for t_rcoord in translation_coord(rcoord, data, direction) {
-            let neighbours = data.get_neighbours(t_rcoord);
-            match neighbours.get(*direction as usize).unwrap() {
-                Some((nc, v)) => match v {
-                    '.' => {
-                        // *c = *nc;
-                        *data.grid.get_mut(&t_rcoord).unwrap() = '.';
-                        *data.grid.get_mut(nc).unwrap() = 'O';
-                    }
-                    '#' => {
-                        break;
-                    }
-                    'O' => {
-                        break;
-                    }
-                    _ => panic!("Non expected char"),
-                },
-                None => {}
-            }
+    // We need to mark the first tile because it is in the grid.
+    energized_tiles.insert(beams[0].pos);
+
+    while !beams.is_empty() {
+        if let Some(new_beams) =
+            beams
+                .pop_front()
+                .unwrap()
+                .advence(data, &mut energized_tiles, &mut seen)
+        {
+            new_beams.iter().for_each(|b| beams.push_back(b.clone()));
         }
     }
-}
 
-fn translation_coord(rcoord: &Coord, data: &mut Data, direction: &TiltDirection) -> Vec<Coord> {
-    match direction {
-        TiltDirection::East => (rcoord.x..data.length_x as isize)
-            .map(|x| Coord::from((x, rcoord.y)))
-            .collect(),
-        TiltDirection::South => (rcoord.y..data.length_y as isize)
-            .map(|y| Coord::from((rcoord.x, y)))
-            .collect(),
-        TiltDirection::West => ((0..=rcoord.x).rev())
-            .map(|x| Coord::from((x, rcoord.y)))
-            .collect(),
-        TiltDirection::North => ((0..=rcoord.y).rev())
-            .map(|y| Coord::from((rcoord.x, y)))
-            .collect(),
-    }
-}
-
-fn west_sort(rrocks: &[Coord]) -> Vec<Coord> {
-    rrocks
-        .iter()
-        .sorted_by(|v1, v2| {
-            if v1.x == v2.x {
-                v2.y.cmp(&v1.y)
-            } else {
-                v1.x.cmp(&v2.x)
-            }
-        })
-        .copied()
-        .collect::<Vec<Coord>>()
-}
-
-fn south_sort(rrocks: &[Coord]) -> Vec<Coord> {
-    rrocks
-        .iter()
-        .sorted_by(|v1, v2| {
-            if v1.x == v2.x {
-                v2.y.cmp(&v1.y)
-            } else {
-                v1.x.cmp(&v2.x)
-            }
-        })
-        .copied()
-        .collect::<Vec<Coord>>()
-}
-
-fn east_sort(rrocks: &[Coord]) -> Vec<Coord> {
-    rrocks
-        .iter()
-        .sorted_by(|v1, v2| {
-            if v1.x == v2.x {
-                v1.y.cmp(&v2.y)
-            } else {
-                v2.x.cmp(&v1.x)
-            }
-        })
-        .copied()
-        .collect::<Vec<Coord>>()
-}
-
-fn north_sort(rrocks: &[Coord]) -> Vec<Coord> {
-    rrocks
-        .iter()
-        .sorted_by(|v1, v2| {
-            if v1.x == v2.x {
-                v1.y.cmp(&v2.y)
-            } else {
-                v1.x.cmp(&v2.x)
-            }
-        })
-        .copied()
-        .collect::<Vec<Coord>>()
-}
-
-fn find_motif(data: &Data, motif: char) -> Vec<Coord> {
-    (0..data.length_x)
-        .flat_map(|x| {
-            (0..data.length_y)
-                .filter_map(|y| {
-                    if data.grid.get(&(Coord::from((x as isize, y as isize)))) == Some(&motif) {
-                        Some(Coord::from((x as isize, y as isize)))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<Coord>>()
-        })
-        .collect::<Vec<Coord>>()
+    energized_tiles.len()
 }
 
 fn print_text_map(coordinates: &[(usize, usize, char)], width: usize, height: usize) {
@@ -315,30 +441,83 @@ mod tests {
     use super::*;
     use indoc::indoc;
     use pretty_assertions::{assert_eq, assert_ne};
+    use rstest::rstest;
 
     #[test]
     fn test_fake() {
         assert_eq!(1, 1);
     }
 
+    #[rstest]
+    // ...
+    // .>.
+    // ...
+    #[case(Direction::Right, "..\n..\n..\n", None)]
+    #[case(Direction::Right, "...\n..|\n...\n", Some(vec![Beam::new(Direction::Up, Coord::from((2,1))),
+                                                          Beam::new(Direction::Down, Coord::from((2,1)))]
+    ))]
+    #[case(Direction::Right,"...\n..-\n...\n", Some(vec![Beam::new(Direction::Right, Coord::from((2,1)))]))]
+    #[case(Direction::Right,"...\n../\n...\n", Some(vec![Beam::new(Direction::Up, Coord::from((2,1)))]))]
+    #[case(Direction::Right,"...\n..\\n...\n", Some(vec![Beam::new(Direction::Down, Coord::from((2,1)))]))]
+    #[case(Direction::Right,"...\n...\n...\n", Some(vec![Beam::new(Direction::Right, Coord::from((2,1)))]))]
+    #[case(Direction::Up,".-.\n...\n...\n", Some(vec![Beam::new(Direction::Right, Coord::from((1,0))),
+                                                      Beam::new(Direction::Left, Coord::from((1,0)))]
+    ))]
+    #[case(Direction::Up,".|.\n...\n...\n", Some(vec![Beam::new(Direction::Up, Coord::from((1,0)))]))]
+    #[case(Direction::Up,"./.\n...\n...\n", Some(vec![Beam::new(Direction::Right, Coord::from((1,0)))]))]
+    #[case(Direction::Up,".\\.\n...\n...\n", Some(vec![Beam::new(Direction::Left, Coord::from((1,0)))]))]
+    #[case(Direction::Up,"...\n...\n...\n", Some(vec![Beam::new(Direction::Up, Coord::from((1,0)))]))]
+    #[case(Direction::Down,"...\n...\n.-.\n", Some(vec![Beam::new(Direction::Right, Coord::from((1,2))),
+                                                        Beam::new(Direction::Left, Coord::from((1,2)))]
+    ))]
+    #[case(Direction::Down,"...\n...\n.|.\n", Some(vec![Beam::new(Direction::Down, Coord::from((1,2)))]))]
+    #[case(Direction::Down,"...\n...\n./.\n", Some(vec![Beam::new(Direction::Left, Coord::from((1,2)))]))]
+    #[case(Direction::Down,"...\n...\n.\\.\n", Some(vec![Beam::new(Direction::Right, Coord::from((1,2)))]))]
+    #[case(Direction::Down,"...\n...\n...\n", Some(vec![Beam::new(Direction::Down, Coord::from((1,2)))]))]
+    #[case(Direction::Left,"...\n|..\n...\n", Some(vec![Beam::new(Direction::Up, Coord::from((0,1))),
+                                                         Beam::new(Direction::Down, Coord::from((0,1)))]
+    ))]
+    #[case(Direction::Left,"...\n-..\n...\n", Some(vec![Beam::new(Direction::Left, Coord::from((0,1)))]))]
+    #[case(Direction::Left,"...\n/..\n...\n", Some(vec![Beam::new(Direction::Down, Coord::from((0,1)))]))]
+    #[case(Direction::Left,"...\n\\..\n...\n", Some(vec![Beam::new(Direction::Up, Coord::from((0,1)))]))]
+    #[case(Direction::Left,"...\n...\n...\n", Some(vec![Beam::new(Direction::Left, Coord::from((0,1)))]))]
+    fn test_advance(
+        #[case] d: Direction,
+        #[case] input: &str,
+        #[case] expected: Option<Vec<Beam>>,
+    ) {
+        // let input = read_input(Some(s));
+        let (_, data) = parse(input).unwrap();
+        let mut beams: VecDeque<Beam> = VecDeque::new();
+        beams.push_back(Beam::new(d, Coord::from((1, 1))));
+        let mut energized_tiles: HashSet<Coord> = HashSet::new();
+        let mut seen: HashSet<(Coord, Direction)> = HashSet::new();
+
+        let new_beams = beams
+            .pop_front()
+            .unwrap()
+            .advence(&data, &mut energized_tiles, &mut seen);
+        assert_eq!(new_beams, expected);
+    }
+
     #[test]
     fn test_run1() {
         let input = read_input(Some(indoc!(
-            "
-            O....#....
-            O.OO#....#
-            .....##...
-            OO.#O....O
-            .O.....O#.
-            O.#..O.#.#
-            ..O..#O..O
-            .......O..
-            #....###..
-            #OO..#....
+            r"
+            .|...\....
+            |.-.\.....
+            .....|-...
+            ........|.
+            ..........
+            .........\
+            ..../.\\..
+            .-.-/..|..
+            .|....-|.\
+            ..//.|....
             "
         )));
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 64);
+        assert_eq!(answer, 51);
     }
 }
