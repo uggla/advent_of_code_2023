@@ -10,6 +10,9 @@ use nom::{
 };
 use petgraph::{algo::dijkstra, graphmap::DiGraphMap, visit::EdgeRef};
 
+const MIN_MOVES: usize = 4;
+const MAX_MOVES_IN_SAME_DIRECTION: usize = 10;
+
 fn read_input(input: Option<&str>) -> String {
     let input = match input {
         None => include_str!("../../input.txt"),
@@ -115,145 +118,205 @@ impl Crucible {
         let neighbors = data.get_neighbours(self.position);
         let positions = match self.direction {
             Direction::Right => {
-                vec![
-                    if let Some((npos, cost)) = neighbors[Direction::Right as usize] {
-                        Some(Crucible {
-                            direction: Direction::Right,
-                            position: npos,
-                            nb_moves: self.nb_moves + 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                    if let Some((npos, cost)) = neighbors[Direction::Up as usize] {
-                        Some(Crucible {
-                            direction: Direction::Up,
-                            position: npos,
-                            nb_moves: 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                    if let Some((npos, cost)) = neighbors[Direction::Down as usize] {
-                        Some(Crucible {
-                            direction: Direction::Down,
-                            position: npos,
-                            nb_moves: 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                ]
+                if self.nb_moves < MIN_MOVES {
+                    vec![
+                        if let Some((npos, cost)) = neighbors[Direction::Right as usize] {
+                            Some(Crucible {
+                                direction: Direction::Right,
+                                position: npos,
+                                nb_moves: self.nb_moves + 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                    ]
+                } else {
+                    vec![
+                        if let Some((npos, cost)) = neighbors[Direction::Right as usize] {
+                            Some(Crucible {
+                                direction: Direction::Right,
+                                position: npos,
+                                nb_moves: self.nb_moves + 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                        if let Some((npos, cost)) = neighbors[Direction::Up as usize] {
+                            Some(Crucible {
+                                direction: Direction::Up,
+                                position: npos,
+                                nb_moves: 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                        if let Some((npos, cost)) = neighbors[Direction::Down as usize] {
+                            Some(Crucible {
+                                direction: Direction::Down,
+                                position: npos,
+                                nb_moves: 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                    ]
+                }
             }
             Direction::Down => {
-                vec![
-                    if let Some((npos, cost)) = neighbors[Direction::Right as usize] {
-                        Some(Crucible {
-                            direction: Direction::Right,
-                            position: npos,
-                            nb_moves: 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                    if let Some((npos, cost)) = neighbors[Direction::Left as usize] {
-                        Some(Crucible {
-                            direction: Direction::Left,
-                            position: npos,
-                            nb_moves: 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                    if let Some((npos, cost)) = neighbors[Direction::Down as usize] {
-                        Some(Crucible {
-                            direction: Direction::Down,
-                            position: npos,
-                            nb_moves: self.nb_moves + 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                ]
+                if self.nb_moves < MIN_MOVES {
+                    vec![
+                        if let Some((npos, cost)) = neighbors[Direction::Down as usize] {
+                            Some(Crucible {
+                                direction: Direction::Down,
+                                position: npos,
+                                nb_moves: self.nb_moves + 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                    ]
+                } else {
+                    vec![
+                        if let Some((npos, cost)) = neighbors[Direction::Down as usize] {
+                            Some(Crucible {
+                                direction: Direction::Down,
+                                position: npos,
+                                nb_moves: self.nb_moves + 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                        if let Some((npos, cost)) = neighbors[Direction::Right as usize] {
+                            Some(Crucible {
+                                direction: Direction::Right,
+                                position: npos,
+                                nb_moves: 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                        if let Some((npos, cost)) = neighbors[Direction::Left as usize] {
+                            Some(Crucible {
+                                direction: Direction::Left,
+                                position: npos,
+                                nb_moves: 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                    ]
+                }
             }
             Direction::Left => {
-                vec![
-                    if let Some((npos, cost)) = neighbors[Direction::Left as usize] {
-                        Some(Crucible {
-                            direction: Direction::Left,
-                            position: npos,
-                            nb_moves: self.nb_moves + 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                    if let Some((npos, cost)) = neighbors[Direction::Up as usize] {
-                        Some(Crucible {
-                            direction: Direction::Up,
-                            position: npos,
-                            nb_moves: 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                    if let Some((npos, cost)) = neighbors[Direction::Down as usize] {
-                        Some(Crucible {
-                            direction: Direction::Down,
-                            position: npos,
-                            nb_moves: 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                ]
+                if self.nb_moves < MIN_MOVES {
+                    vec![
+                        if let Some((npos, cost)) = neighbors[Direction::Left as usize] {
+                            Some(Crucible {
+                                direction: Direction::Left,
+                                position: npos,
+                                nb_moves: self.nb_moves + 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                    ]
+                } else {
+                    vec![
+                        if let Some((npos, cost)) = neighbors[Direction::Left as usize] {
+                            Some(Crucible {
+                                direction: Direction::Left,
+                                position: npos,
+                                nb_moves: self.nb_moves + 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                        if let Some((npos, cost)) = neighbors[Direction::Up as usize] {
+                            Some(Crucible {
+                                direction: Direction::Up,
+                                position: npos,
+                                nb_moves: 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                        if let Some((npos, cost)) = neighbors[Direction::Down as usize] {
+                            Some(Crucible {
+                                direction: Direction::Down,
+                                position: npos,
+                                nb_moves: 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                    ]
+                }
             }
             Direction::Up => {
-                vec![
-                    if let Some((npos, cost)) = neighbors[Direction::Right as usize] {
-                        Some(Crucible {
-                            direction: Direction::Right,
-                            position: npos,
-                            nb_moves: 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                    if let Some((npos, cost)) = neighbors[Direction::Left as usize] {
-                        Some(Crucible {
-                            direction: Direction::Left,
-                            position: npos,
-                            nb_moves: 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                    if let Some((npos, cost)) = neighbors[Direction::Up as usize] {
-                        Some(Crucible {
-                            direction: Direction::Up,
-                            position: npos,
-                            nb_moves: self.nb_moves + 1,
-                            cost: cost.to_digit(10).unwrap() as usize,
-                        })
-                    } else {
-                        None
-                    },
-                ]
+                if self.nb_moves < MIN_MOVES {
+                    vec![
+                        if let Some((npos, cost)) = neighbors[Direction::Up as usize] {
+                            Some(Crucible {
+                                direction: Direction::Up,
+                                position: npos,
+                                nb_moves: self.nb_moves + 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                    ]
+                } else {
+                    vec![
+                        if let Some((npos, cost)) = neighbors[Direction::Up as usize] {
+                            Some(Crucible {
+                                direction: Direction::Up,
+                                position: npos,
+                                nb_moves: self.nb_moves + 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                        if let Some((npos, cost)) = neighbors[Direction::Left as usize] {
+                            Some(Crucible {
+                                direction: Direction::Left,
+                                position: npos,
+                                nb_moves: 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                        if let Some((npos, cost)) = neighbors[Direction::Right as usize] {
+                            Some(Crucible {
+                                direction: Direction::Right,
+                                position: npos,
+                                nb_moves: 1,
+                                cost: cost.to_digit(10).unwrap() as usize,
+                            })
+                        } else {
+                            None
+                        },
+                    ]
+                }
             }
         };
         let mut positions: Vec<Crucible> = positions.iter().filter_map(|c| *c).collect();
-        // Remove positions that exceed 3 moves in the same direction
-        positions.retain(|c| c.nb_moves < 4);
+        // Remove positions that exceed 10 moves in the same direction
+        positions.retain(|c| c.nb_moves <= MAX_MOVES_IN_SAME_DIRECTION);
         positions
     }
 }
@@ -265,14 +328,24 @@ fn run(input: String) -> usize {
     let mut to_process: VecDeque<Crucible> = VecDeque::new();
     let mut g: DiGraphMap<Crucible, usize> = DiGraphMap::new();
 
-    let start = [Crucible {
-        direction: Direction::Right,
-        position: Coord::from((0, 0)),
-        nb_moves: 0,
-        cost: data.grid[&Coord::from((0, 0)) as &Coord]
-            .to_digit(10)
-            .unwrap() as usize,
-    }];
+    let start = [
+        Crucible {
+            direction: Direction::Right,
+            position: Coord::from((0, 0)),
+            nb_moves: 0,
+            cost: data.grid[&Coord::from((0, 0)) as &Coord]
+                .to_digit(10)
+                .unwrap() as usize,
+        },
+        Crucible {
+            direction: Direction::Down,
+            position: Coord::from((0, 0)),
+            nb_moves: 0,
+            cost: data.grid[&Coord::from((0, 0)) as &Coord]
+                .to_digit(10)
+                .unwrap() as usize,
+        },
+    ];
 
     start.iter().for_each(|c| {
         to_process.push_back(*c);
@@ -297,16 +370,23 @@ fn run(input: String) -> usize {
 
     // println!("{:?}", Dot::new(&g));
 
-    let path = dijkstra(&g, start[0], None, |e| *e.weight());
+    let path0 = dijkstra(&g, start[0], None, |e| *e.weight());
+    let path1 = dijkstra(&g, start[1], None, |e| *e.weight());
 
-    let path: Vec<(&Crucible, &usize)> = path
+    let path: Vec<(&Crucible, &usize)> = path0
         .iter()
+        .chain(path1.iter())
         .filter(|p| {
             p.0.position == Coord::from((data.length_x as isize - 1, data.length_y as isize - 1))
         })
         .collect();
 
-    dbg!(path.iter().map(|p| *p.1).min().unwrap())
+    dbg!(path
+        .iter()
+        .filter(|p| p.0.nb_moves >= MIN_MOVES)
+        .map(|p| *p.1)
+        .min()
+        .unwrap())
 }
 
 #[allow(dead_code)]
@@ -371,6 +451,21 @@ mod tests {
         )));
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 102);
+        assert_eq!(answer, 94);
+    }
+    #[test]
+    fn test_run2() {
+        let input = read_input(Some(indoc!(
+            "
+            111111111111
+            999999999991
+            999999999991
+            999999999991
+            999999999991
+            "
+        )));
+        dbg!(&input);
+        let answer = run(input);
+        assert_eq!(answer, 71);
     }
 }
