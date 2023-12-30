@@ -64,6 +64,18 @@ enum Direction {
     Up = 3,
 }
 
+impl From<usize> for Direction {
+    fn from(x: usize) -> Self {
+        match x {
+            0 => Self::Right,
+            1 => Self::Down,
+            2 => Self::Left,
+            3 => Self::Up,
+            _ => panic!("Invalid direction"),
+        }
+    }
+}
+
 impl Direction {
     fn new(c: char) -> Self {
         match c {
@@ -126,7 +138,23 @@ impl Add<Coord> for Coord {
 }
 
 fn run(input: String) -> usize {
-    let (_, data) = parse(&input).unwrap();
+    let (_, mut data) = parse(&input).unwrap();
+
+    // Fix the data
+    data.cubes = data
+        .cubes
+        .iter()
+        .map(|cube| {
+            let distance = usize::from_str_radix(&cube.color[..5], 16).unwrap();
+            let direction = Direction::from(cube.color[5..].parse::<usize>().unwrap());
+
+            Cube {
+                direction,
+                distance,
+                color: cube.color.clone(),
+            }
+        })
+        .collect();
     dbg!(&data);
 
     let mut grid: Vec<(Coord, String)> = Vec::new();
@@ -146,23 +174,33 @@ fn run(input: String) -> usize {
 
     let grid = grid
         .into_iter()
-        .map(|(k, v)| (Coord::new(k.x + min_x.abs(), k.y + min_y.abs()), v))
-        .collect::<Vec<(Coord, String)>>();
+        .map(|(k, _)| Coord::new(k.x + min_x.abs(), k.y + min_y.abs()))
+        .collect::<Vec<Coord>>();
 
-    // Display grid
-    let coords = grid
-        .iter()
-        .map(|(c, _)| (c.x as usize, c.y as usize, 'X'))
-        .collect::<Vec<(usize, usize, char)>>();
-    let width = grid.iter().map(|(c, _)| c.x).max().unwrap() as usize + 1;
-    let height = grid.iter().map(|(c, _)| c.y).max().unwrap() as usize + 1;
-    print_text_map(&coords, width, height);
-
-    let inside = is_inside(height, width, &grid);
-
-    grid.len() + inside.len()
+    // We cannot iterate the grid because there are to many positions
+    // But we can calculate the polygone area with coordinates.
+    // http://villemin.gerard.free.fr/GeomLAV/Polygone/Lacet.htm
+    let area = polygon_area(&grid);
+    // Found perimeter "experimentally" but the reason is here:
+    // https://www.reddit.com/r/adventofcode/comments/18l8mao/2023_day_18_intuition_for_why_spoiler_alone/
+    let perimeter = &grid.len() / 2 + 1;
+    dbg!(area as usize + perimeter)
 }
 
+fn polygon_area(vertices: &[Coord]) -> isize {
+    let mut area: isize = 0;
+    let n = vertices.len();
+
+    for i in 0..n {
+        let p1 = &vertices[i];
+        let p2 = &vertices[(i + 1) % n]; // To loop around to the first point
+        area += p1.x * p2.y - p2.x * p1.y;
+    }
+
+    area.abs() / 2
+}
+
+#[allow(dead_code)]
 fn is_inside(height: usize, width: usize, grid: &[(Coord, String)]) -> Vec<Coord> {
     let mut in_poly = Vec::new();
     let grid = grid.iter().map(|(c, _)| *c).collect::<Vec<Coord>>();
@@ -178,6 +216,7 @@ fn is_inside(height: usize, width: usize, grid: &[(Coord, String)]) -> Vec<Coord
 }
 
 // This function uses winding number algorithm to determine if a point is inside a polygon
+#[allow(dead_code)]
 #[allow(clippy::collapsible_else_if)]
 fn inside(point: &Coord, polygon: &[Coord]) -> i32 {
     let mut wn = 0; // Winding number
@@ -201,6 +240,7 @@ fn inside(point: &Coord, polygon: &[Coord]) -> i32 {
 }
 
 // Helper function using a vectoriel product to determine if a point is to the left of a line segment
+#[allow(dead_code)]
 fn is_left(seg_p0: &Coord, seg_p1: &Coord, point: &Coord) -> f64 {
     (seg_p1.x as f64 - seg_p0.x as f64) * (point.y as f64 - seg_p0.y as f64)
         - (point.x as f64 - seg_p0.x as f64) * (seg_p1.y as f64 - seg_p0.y as f64)
@@ -269,21 +309,6 @@ mod tests {
         )));
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 62);
-    }
-
-    #[test]
-    fn test_run2() {
-        let input = read_input(Some(indoc!(
-            "
-            R 4 (#70c710)
-            U 4 (#0dc571)
-            L 4 (#5713f0)
-            D 4 (#d2c081)
-            "
-        )));
-        dbg!(&input);
-        let answer = run(input);
-        assert_eq!(answer, 16 + 9);
+        assert_eq!(answer, 952408144115);
     }
 }
