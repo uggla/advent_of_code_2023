@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
 use nom::{
     branch::alt,
@@ -22,36 +22,36 @@ fn read_input(input: Option<&str>) -> String {
 fn parse(input: &str) -> IResult<&str, Data> {
     let (input, workflow) = many1(parse_wf_line)(input)?;
     let (input, _) = line_ending(input)?;
-    let (input, parts) = many1(parse_p_line)(input)?;
+    // let (input, parts) = many1(parse_p_line)(input)?;
 
     let workflow = workflow
         .iter()
         .cloned()
         .collect::<HashMap<String, Vec<Rule>>>();
-    let data = Data { workflow, parts };
+    let data = Data { workflow };
     Ok((input, data))
 }
-fn parse_p_line(input: &str) -> IResult<&str, Part> {
-    let (input, _) = tag("{x=")(input)?;
-    let (input, x) = digit1(input)?;
-    let (input, _) = tag(",m=")(input)?;
-    let (input, m) = digit1(input)?;
-    let (input, _) = tag(",a=")(input)?;
-    let (input, a) = digit1(input)?;
-    let (input, _) = tag(",s=")(input)?;
-    let (input, s) = digit1(input)?;
-    let (input, _) = tag("}")(input)?;
-    let (input, _) = line_ending(input)?;
-    Ok((
-        input,
-        Part {
-            x: x.parse().unwrap(),
-            m: m.parse().unwrap(),
-            a: a.parse().unwrap(),
-            s: s.parse().unwrap(),
-        },
-    ))
-}
+// fn parse_p_line(input: &str) -> IResult<&str, Part> {
+//     let (input, _) = tag("{x=")(input)?;
+//     let (input, x) = digit1(input)?;
+//     let (input, _) = tag(",m=")(input)?;
+//     let (input, m) = digit1(input)?;
+//     let (input, _) = tag(",a=")(input)?;
+//     let (input, a) = digit1(input)?;
+//     let (input, _) = tag(",s=")(input)?;
+//     let (input, s) = digit1(input)?;
+//     let (input, _) = tag("}")(input)?;
+//     let (input, _) = line_ending(input)?;
+//     Ok((
+//         input,
+//         Part {
+//             x: x.parse().unwrap(),
+//             m: m.parse().unwrap(),
+//             a: a.parse().unwrap(),
+//             s: s.parse().unwrap(),
+//         },
+//     ))
+// }
 
 fn parse_wf_line(input: &str) -> IResult<&str, (String, Vec<Rule>)> {
     let (input, name) = take_until("{")(input)?;
@@ -97,7 +97,8 @@ fn parse_d_rule(input: &str) -> IResult<&str, Rule> {
 #[derive(Debug)]
 struct Data {
     workflow: HashMap<String, Vec<Rule>>,
-    parts: Vec<Part>,
+    // parts data are not needed anymore
+    // parts: Vec<Part>,
 }
 
 #[derive(Debug, Clone)]
@@ -108,7 +109,7 @@ struct Rule {
     dest: String,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Op {
     Sup,
     Inf,
@@ -126,15 +127,37 @@ impl From<char> for Op {
 
 #[derive(Debug, Clone)]
 struct Part {
-    x: usize,
-    m: usize,
-    a: usize,
-    s: usize,
+    x: Range<usize>,
+    m: Range<usize>,
+    a: Range<usize>,
+    s: Range<usize>,
 }
 
 impl Part {
-    fn sum(&self) -> usize {
-        self.x + self.m + self.a + self.s
+    fn combinations(&self) -> usize {
+        (self.x.len()) * (self.m.len()) * (self.a.len()) * (self.s.len())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct WFStep {
+    part: Part,
+    wf_name: String,
+    rule_index: usize,
+}
+
+impl Default for WFStep {
+    fn default() -> Self {
+        Self {
+            part: Part {
+                x: 1..4001,
+                m: 1..4001,
+                a: 1..4001,
+                s: 1..4001,
+            },
+            wf_name: String::from("in"),
+            rule_index: 0,
+        }
     }
 }
 
@@ -143,86 +166,103 @@ fn run(input: String) -> usize {
     dbg!(&data);
 
     let mut accepted = Vec::new();
-    for part in data.parts.iter() {
-        let mut wf_name = String::from("in");
-        // Use a loop and do not recurse into the workflow to avoid stack overflow
-        loop {
-            // dbg!(&wf_name);
-            match process_wf(&data.workflow, wf_name.clone(), part.clone()).unwrap() {
-                "A" => {
-                    accepted.push(part);
-                    break;
+    let mut wf_steps = Vec::new();
+    wf_steps.push(WFStep::default());
+
+    while let Some(wf_step) = wf_steps.pop() {
+        let nwf_steps = process_wf_steps(&data.workflow, wf_step);
+
+        for nwf_step in nwf_steps {
+            match nwf_step {
+                Some(nwf_step) => match nwf_step.wf_name.as_str() {
+                    "A" => {
+                        accepted.push(nwf_step.part);
+                    }
+                    "R" => {}
+                    _ => {
+                        wf_steps.push(nwf_step);
+                    }
+                },
+                None => {
+                    dbg!("We should not pass here unless a range in empty (start>end)");
                 }
-                "R" => {
-                    break;
-                }
-                name => wf_name = name.to_string(),
             }
         }
     }
     dbg!(&accepted);
-    accepted.iter().map(|x| x.sum()).sum::<usize>()
+    accepted.iter().map(|x| x.combinations()).sum::<usize>()
 }
 
-fn process_wf(workflow: &HashMap<String, Vec<Rule>>, wf_name: String, part: Part) -> Option<&str> {
-    let rules = workflow.get(&wf_name).unwrap();
-    for rule in rules.iter() {
-        match rule.rate {
-            Some('x') => match rule.op.unwrap() {
-                Op::Sup => {
-                    if part.x > rule.value.unwrap() {
-                        return Some(&rule.dest);
-                    }
-                }
-                Op::Inf => {
-                    if part.x < rule.value.unwrap() {
-                        return Some(&rule.dest);
-                    }
-                }
-            },
-            Some('m') => match rule.op.unwrap() {
-                Op::Sup => {
-                    if part.m > rule.value.unwrap() {
-                        return Some(&rule.dest);
-                    }
-                }
-                Op::Inf => {
-                    if part.m < rule.value.unwrap() {
-                        return Some(&rule.dest);
-                    }
-                }
-            },
-            Some('a') => match rule.op.unwrap() {
-                Op::Sup => {
-                    if part.a > rule.value.unwrap() {
-                        return Some(&rule.dest);
-                    }
-                }
-                Op::Inf => {
-                    if part.a < rule.value.unwrap() {
-                        return Some(&rule.dest);
-                    }
-                }
-            },
-            Some('s') => match rule.op.unwrap() {
-                Op::Sup => {
-                    if part.s > rule.value.unwrap() {
-                        return Some(&rule.dest);
-                    }
-                }
-                Op::Inf => {
-                    if part.s < rule.value.unwrap() {
-                        return Some(&rule.dest);
-                    }
-                }
-            },
-            Some(_) => panic!("Unknown rule rate: {}", rule.rate.unwrap()),
-            None => {
-                return Some(&rule.dest);
-            }
-        }
+fn process_wf_steps(workflow: &HashMap<String, Vec<Rule>>, wf_step: WFStep) -> Vec<Option<WFStep>> {
+    let rules = workflow.get(&wf_step.wf_name).unwrap();
+    let rule = rules.get(wf_step.rule_index).unwrap();
+    match rule.rate {
+        Some(_) => process_rate_rule(&wf_step, rule),
+        None => process_redirect_rule(&wf_step, rule),
     }
-    None
+}
+
+fn process_redirect_rule(wf_step: &WFStep, rule: &Rule) -> Vec<Option<WFStep>> {
+    let mut nwf_steps = Vec::new();
+    let mut nwf_step_ok = wf_step.clone();
+    nwf_step_ok.wf_name = rule.dest.clone();
+    nwf_step_ok.rule_index = 0;
+    nwf_steps.push(Some(nwf_step_ok));
+    nwf_steps
+}
+
+fn process_rate_rule(wf_step: &WFStep, rule: &Rule) -> Vec<Option<WFStep>> {
+    let mut nwf_steps = Vec::new();
+    let mut nwf_step_ok = wf_step.clone();
+    let mut nwf_step_ko = wf_step.clone();
+
+    // We return 2 x WFStep, one if the rule is ok and one if the rule is ko
+    // get_range return a mutable reference to the impacted range
+    let part_rate_ok = get_range(rule, &mut nwf_step_ok);
+    let part_rate_ko = get_range(rule, &mut nwf_step_ko);
+
+    // Initial range is 1..4001  note this is half open range 1 <= x < 4001
+    // If we split the range in 2 with x<2000
+    // we get 1..2000 and 2000..4001
+    // If x > 2000:
+    // we get 2001..4001 and 1..2001
+    if rule.op.unwrap() == Op::Inf {
+        let range = part_rate_ok.start..rule.value.unwrap();
+        *part_rate_ok = range;
+        let range = rule.value.unwrap()..part_rate_ko.end;
+        *part_rate_ko = range;
+    } else {
+        let range = rule.value.unwrap() + 1..part_rate_ok.end;
+        *part_rate_ok = range;
+        let range = part_rate_ko.start..rule.value.unwrap() + 1;
+        *part_rate_ko = range;
+    }
+
+    if Range::is_empty(part_rate_ok) {
+        nwf_steps.push(None);
+    } else {
+        nwf_step_ok.wf_name = rule.dest.clone();
+        nwf_step_ok.rule_index = 0;
+        nwf_steps.push(Some(nwf_step_ok));
+    }
+
+    if Range::is_empty(part_rate_ko) {
+        nwf_steps.push(None);
+    } else {
+        nwf_step_ko.rule_index += 1;
+        nwf_steps.push(Some(nwf_step_ko));
+    }
+    nwf_steps
+}
+
+fn get_range<'a>(rule: &'a Rule, nwf_step: &'a mut WFStep) -> &'a mut Range<usize> {
+    match rule.rate.unwrap() {
+        'x' => &mut nwf_step.part.x,
+        'm' => &mut nwf_step.part.m,
+        'a' => &mut nwf_step.part.a,
+        's' => &mut nwf_step.part.s,
+        _ => panic!("Unknown rule rate: {}", rule.rate.unwrap()),
+    }
 }
 
 fn main() {
@@ -244,6 +284,30 @@ mod tests {
     #[test]
     fn test_fake() {
         assert_eq!(1, 1);
+    }
+
+    #[test]
+    fn test_combinations() {
+        let part = Part {
+            x: 1..4001,
+            m: 1..4001,
+            a: 1..4001,
+            s: 1..4001,
+        };
+        let combinations = part.combinations();
+        assert_eq!(combinations, 4000 * 4000 * 4000 * 4000);
+    }
+    //
+    #[test]
+    fn test_combinations2() {
+        let part = Part {
+            x: 1..2001,
+            m: 2001..4001,
+            a: 1..4001,
+            s: 1..4001,
+        };
+        let combinations = part.combinations();
+        assert_eq!(combinations, 2000 * 2000 * 4000 * 4000);
     }
 
     #[test]
@@ -271,6 +335,6 @@ mod tests {
         )));
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 19114);
+        assert_eq!(answer, 167409079868000);
     }
 }
