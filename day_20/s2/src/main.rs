@@ -1,14 +1,14 @@
-use std::{collections::HashMap, ops::Range};
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::fmt::Debug;
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_until},
-    character::complete::{alpha1, digit1, line_ending},
+    bytes::complete::tag,
+    character::complete::{alpha0, alpha1, line_ending, space1},
     multi::{many1, separated_list1},
     *,
 };
-
-use nom::character::complete::char as nomchar;
 
 fn read_input(input: Option<&str>) -> String {
     let input = match input {
@@ -19,250 +19,386 @@ fn read_input(input: Option<&str>) -> String {
     input.to_string()
 }
 
-fn parse(input: &str) -> IResult<&str, Data> {
-    let (input, workflow) = many1(parse_wf_line)(input)?;
-    let (input, _) = line_ending(input)?;
-    // let (input, parts) = many1(parse_p_line)(input)?;
+fn parse(input: &str) -> IResult<&str, HashMap<String, Component>> {
+    let (input, components) = many1(parse_line)(input)?;
 
-    let workflow = workflow
-        .iter()
-        .cloned()
-        .collect::<HashMap<String, Vec<Rule>>>();
-    let data = Data { workflow };
-    Ok((input, data))
+    let components = components.into_iter().collect();
+
+    Ok((input, components))
 }
-// fn parse_p_line(input: &str) -> IResult<&str, Part> {
-//     let (input, _) = tag("{x=")(input)?;
-//     let (input, x) = digit1(input)?;
-//     let (input, _) = tag(",m=")(input)?;
-//     let (input, m) = digit1(input)?;
-//     let (input, _) = tag(",a=")(input)?;
-//     let (input, a) = digit1(input)?;
-//     let (input, _) = tag(",s=")(input)?;
-//     let (input, s) = digit1(input)?;
-//     let (input, _) = tag("}")(input)?;
-//     let (input, _) = line_ending(input)?;
-//     Ok((
-//         input,
-//         Part {
-//             x: x.parse().unwrap(),
-//             m: m.parse().unwrap(),
-//             a: a.parse().unwrap(),
-//             s: s.parse().unwrap(),
-//         },
-//     ))
-// }
-
-fn parse_wf_line(input: &str) -> IResult<&str, (String, Vec<Rule>)> {
-    let (input, name) = take_until("{")(input)?;
-    let (input, _) = tag("{")(input)?;
-    let (input, rules) = separated_list1(tag(","), parse_rules)(input)?;
-    let (input, _) = tag("}")(input)?;
+fn parse_line(input: &str) -> IResult<&str, (String, Component)> {
+    let (input, component) = alt((tag("broadcaster"), tag("%"), tag("&")))(input)?; // % or &(input)?;
+    let (input, mut name) = alpha0(input)?;
+    let (input, _) = space1(input)?;
+    let (input, _) = tag("->")(input)?;
+    let (input, dests) = alt((
+        separated_list1(tag(","), parse_multi_dest),
+        parse_unique_dest,
+    ))(input)?;
     let (input, _) = line_ending(input)?;
 
-    Ok((input, (name.to_string(), rules)))
-}
+    let dests = dests
+        .into_iter()
+        .map(|x| Connection::new(name.to_string(), x.trim().to_string()))
+        .collect::<Vec<Connection>>();
 
-fn parse_rules(input: &str) -> IResult<&str, Rule> {
-    let (input, rule) = alt((parse_c_rule, parse_d_rule))(input)?;
-    Ok((input, rule))
-}
-
-fn parse_c_rule(input: &str) -> IResult<&str, Rule> {
-    let (input, rate) = alt((nomchar('x'), nomchar('m'), nomchar('a'), nomchar('s')))(input)?;
-    let (input, op) = alt((nomchar('<'), nomchar('>')))(input)?;
-    let (input, value) = digit1(input)?;
-    let (input, _) = tag(":")(input)?;
-    let (input, destination) = alpha1(input)?;
-    let rule = Rule {
-        rate: Some(rate),
-        op: Some(Op::from(op)),
-        value: Some(value.parse().unwrap()),
-        dest: destination.to_string(),
+    let component = match component {
+        "broadcaster" => {
+            name = "broadcaster";
+            let dests = dests
+                .into_iter()
+                .map(|Connection { from: _, to }| Connection::new(name.to_string(), to))
+                .collect();
+            Component::Broadcaster(Broadcaster::new(name.to_string(), dests))
+        }
+        "%" => Component::FlipFlop(FlipFlop::new(name.to_string(), dests)),
+        "&" => {
+            // conjonctions.push(name.to_string());
+            Component::Conjunction(Conjunction::new(name.to_string(), dests))
+        }
+        _ => panic!("unknown component"),
     };
-    Ok((input, rule))
+
+    Ok((input, (name.to_string(), component)))
 }
 
-fn parse_d_rule(input: &str) -> IResult<&str, Rule> {
-    let (input, destination) = alpha1(input)?;
-    let rule = Rule {
-        rate: None,
-        op: None,
-        value: None,
-        dest: destination.to_string(),
-    };
-    Ok((input, rule))
+fn parse_unique_dest(input: &str) -> IResult<&str, Vec<&str>> {
+    let (input, dest) = alpha1(input)?;
+
+    Ok((input, vec![dest]))
 }
 
-#[derive(Debug)]
-struct Data {
-    workflow: HashMap<String, Vec<Rule>>,
-    // parts data are not needed anymore
-    // parts: Vec<Part>,
-}
+fn parse_multi_dest(input: &str) -> IResult<&str, &str> {
+    let (input, _) = space1(input)?;
+    let (input, dest) = alpha1(input)?;
 
-#[derive(Debug, Clone)]
-struct Rule {
-    rate: Option<char>,
-    op: Option<Op>,
-    value: Option<usize>,
-    dest: String,
+    Ok((input, dest))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Op {
-    Sup,
-    Inf,
+enum Pulse {
+    Low,
+    High,
 }
 
-impl From<char> for Op {
-    fn from(c: char) -> Self {
-        match c {
-            '<' => Op::Inf,
-            '>' => Op::Sup,
-            _ => panic!("Unknown op: {}", c),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    On,
+    Off,
+}
+
+#[derive(Debug)]
+struct PulseCounter {
+    low: usize,
+    high: usize,
+}
+
+impl PulseCounter {
+    fn new() -> Self {
+        Self { low: 0, high: 0 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Connection {
+    from: String,
+    to: String,
+}
+
+impl Connection {
+    fn new(from: String, to: String) -> Self {
+        Self { from, to }
+    }
+}
+
+impl From<(&str, &str)> for Connection {
+    fn from((from, to): (&str, &str)) -> Self {
+        Self {
+            from: from.to_string(),
+            to: to.to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum Component {
+    Broadcaster(Broadcaster),
+    FlipFlop(FlipFlop),
+    Conjunction(Conjunction),
+}
+
+#[derive(Debug, Clone)]
+struct FlipFlop {
+    name: String,
+    state: State,
+    output_connection: Vec<Connection>,
+}
+
+impl FlipFlop {
+    fn new(name: String, connections: Vec<Connection>) -> Self {
+        Self {
+            name,
+            state: State::Off,
+            output_connection: connections,
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn high_pulse(
+        &self,
+        pulse_counter: &mut PulseCounter,
+        outputs: &mut HashMap<String, Vec<(Connection, Pulse)>>,
+    ) {
+        // Nothing should happen here !
+        // The outputs should not be touched in this case and especially not cleared!
+    }
+
+    fn low_pulse(
+        &mut self,
+        pulse_counter: &mut PulseCounter,
+        outputs: &mut HashMap<String, Vec<(Connection, Pulse)>>,
+    ) {
+        if self.state == State::Off {
+            self.state = State::On;
+            let mut out = Vec::new();
+            for conn in self.output_connection.iter() {
+                pulse_counter.high += 1;
+                println!("{}: sends a high pulse to {}", self.name, conn.to);
+                out.push((conn.clone(), Pulse::High));
+            }
+            outputs.insert(self.name.clone(), out);
+        } else {
+            self.state = State::Off;
+            let mut out = Vec::new();
+            for conn in self.output_connection.iter() {
+                pulse_counter.low += 1;
+                println!("{}: sends a low pulse to {}", self.name, conn.to);
+                out.push((conn.clone(), Pulse::Low));
+            }
+            outputs.insert(self.name.clone(), out);
         }
     }
 }
 
 #[derive(Debug, Clone)]
-struct Part {
-    x: Range<usize>,
-    m: Range<usize>,
-    a: Range<usize>,
-    s: Range<usize>,
+struct Conjunction {
+    name: String,
+    output_connection: Vec<Connection>,
+    input_connections: Vec<Connection>,
+    inputs: Vec<(Connection, Pulse)>,
 }
 
-impl Part {
-    fn combinations(&self) -> usize {
-        (self.x.len()) * (self.m.len()) * (self.a.len()) * (self.s.len())
+impl Conjunction {
+    fn new(name: String, connections: Vec<Connection>) -> Self {
+        Self {
+            name,
+            output_connection: connections,
+            input_connections: Vec::new(),
+            inputs: Vec::new(),
+        }
+    }
+    fn high_pulse(
+        &mut self,
+        pulse_counter: &mut PulseCounter,
+        outputs: &mut HashMap<String, Vec<(Connection, Pulse)>>,
+    ) {
+        self.get_outputs(outputs, pulse_counter);
+    }
+
+    fn low_pulse(
+        &mut self,
+        pulse_counter: &mut PulseCounter,
+        outputs: &mut HashMap<String, Vec<(Connection, Pulse)>>,
+    ) {
+        self.get_outputs(outputs, pulse_counter);
+    }
+
+    fn get_outputs(
+        &mut self,
+        outputs: &mut HashMap<String, Vec<(Connection, Pulse)>>,
+        pulse_counter: &mut PulseCounter,
+    ) {
+        self.get_inputs(outputs);
+        outputs.get_mut(&self.name).unwrap().clear();
+        if self
+            .inputs
+            .iter()
+            .map(|(_, p)| p)
+            .all(|p| *p == Pulse::High)
+        {
+            for conn in self.output_connection.iter() {
+                println!("{}: sends a low pulse to {}", self.name, conn.to);
+                pulse_counter.low += 1;
+                outputs
+                    .get_mut(&self.name)
+                    .unwrap()
+                    .push((conn.clone(), Pulse::Low));
+            }
+        } else {
+            for conn in self.output_connection.iter() {
+                println!("{}: sends a high pulse to {}", self.name, conn.to);
+                pulse_counter.high += 1;
+                outputs
+                    .get_mut(&self.name)
+                    .unwrap()
+                    .push((conn.clone(), Pulse::High));
+            }
+        }
+    }
+
+    fn get_inputs(&mut self, outputs: &HashMap<String, Vec<(Connection, Pulse)>>) {
+        self.inputs.clear();
+        for input in self.input_connections.iter() {
+            if let Some(output) = outputs
+                .get(&input.from)
+                .unwrap()
+                .iter()
+                .find(|(conn, _p)| *conn == *input)
+            {
+                self.inputs.push(output.clone());
+            } else {
+                self.inputs.push((input.clone(), Pulse::Low));
+            }
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-struct WFStep {
-    part: Part,
-    wf_name: String,
-    rule_index: usize,
+struct Broadcaster {
+    name: String,
+    output_connection: Vec<Connection>,
 }
-
-impl Default for WFStep {
-    fn default() -> Self {
+impl Broadcaster {
+    fn new(name: String, connections: Vec<Connection>) -> Self {
         Self {
-            part: Part {
-                x: 1..4001,
-                m: 1..4001,
-                a: 1..4001,
-                s: 1..4001,
-            },
-            wf_name: String::from("in"),
-            rule_index: 0,
+            name,
+            output_connection: connections,
+        }
+    }
+    fn high_pulse(
+        &mut self,
+        pulse_counter: &mut PulseCounter,
+        outputs: &mut HashMap<String, Vec<(Connection, Pulse)>>,
+    ) {
+        outputs.get_mut(&self.name).unwrap().clear();
+        for conn in self.output_connection.iter_mut() {
+            println!("{}: sends a low pulse to {}", self.name, conn.to);
+            pulse_counter.high += 1;
+            outputs
+                .get_mut(&self.name)
+                .unwrap()
+                .push((conn.clone(), Pulse::High));
+        }
+    }
+
+    fn low_pulse(
+        &mut self,
+        pulse_counter: &mut PulseCounter,
+        outputs: &mut HashMap<String, Vec<(Connection, Pulse)>>,
+    ) {
+        outputs.get_mut(&self.name).unwrap().clear();
+        for conn in self.output_connection.iter() {
+            println!("{}: sends a low pulse to {}", self.name, conn.to);
+            pulse_counter.low += 1;
+            outputs
+                .get_mut(&self.name)
+                .unwrap()
+                .push((conn.clone(), Pulse::Low));
         }
     }
 }
 
 fn run(input: String) -> usize {
-    let (_, data) = parse(&input).unwrap();
-    dbg!(&data);
+    let (_, mut components) = parse(&input).unwrap();
 
-    let mut accepted = Vec::new();
-    let mut wf_steps = Vec::new();
-    wf_steps.push(WFStep::default());
+    let connections = components
+        .iter()
+        .flat_map(|(_name, component)| match component {
+            Component::Broadcaster(broadcaster) => broadcaster.output_connection.clone(),
+            Component::FlipFlop(flip_flop) => flip_flop.output_connection.clone(),
+            Component::Conjunction(conjonction) => conjonction.output_connection.clone(),
+        })
+        .collect::<Vec<_>>();
 
-    while let Some(wf_step) = wf_steps.pop() {
-        let nwf_steps = process_wf_steps(&data.workflow, wf_step);
+    let mut outputs: HashMap<String, Vec<(Connection, Pulse)>> = HashMap::new();
+    // Initialise all outputs
+    for name in components.keys() {
+        outputs.insert(name.clone(), Vec::new());
+    }
 
-        for nwf_step in nwf_steps {
-            match nwf_step {
-                Some(nwf_step) => match nwf_step.wf_name.as_str() {
-                    "A" => {
-                        accepted.push(nwf_step.part);
-                    }
-                    "R" => {}
-                    _ => {
-                        wf_steps.push(nwf_step);
-                    }
-                },
-                None => {
-                    dbg!("We should not pass here unless a range in empty (start>end)");
+    // Populate input connections for conjonction components
+    for comp in components.iter_mut() {
+        if let Component::Conjunction(conjonction) = comp.1 {
+            for Connection { from, to } in connections.iter() {
+                if to == &conjonction.name {
+                    conjonction
+                        .input_connections
+                        .push(Connection::new(from.clone(), to.clone()));
                 }
             }
         }
     }
-    dbg!(&accepted);
-    accepted.iter().map(|x| x.combinations()).sum::<usize>()
-}
 
-fn process_wf_steps(workflow: &HashMap<String, Vec<Rule>>, wf_step: WFStep) -> Vec<Option<WFStep>> {
-    let rules = workflow.get(&wf_step.wf_name).unwrap();
-    let rule = rules.get(wf_step.rule_index).unwrap();
-    match rule.rate {
-        Some(_) => process_rate_rule(&wf_step, rule),
-        None => process_redirect_rule(&wf_step, rule),
+    dbg!(&components);
+
+    let mut pulse_counter = PulseCounter::new();
+    let mut stack: VecDeque<(Connection, Pulse)> = VecDeque::new();
+
+    for _ in 0..1000 {
+        stack.push_back((Connection::from(("button", "broadcaster")), Pulse::Low));
+        println!("button: sends a low pulse to broadcaster");
+        pulse_counter.low += 1;
+        while !stack.is_empty() {
+            let (conn, pulse) = stack.pop_front().unwrap();
+            if let Some(component) = components.get_mut(&conn.to) {
+                match component {
+                    Component::Broadcaster(comp) => match pulse {
+                        Pulse::Low => {
+                            comp.low_pulse(&mut pulse_counter, &mut outputs);
+                            for output in outputs.get(&comp.name).unwrap() {
+                                stack.push_back(output.clone());
+                            }
+                        }
+                        Pulse::High => {
+                            comp.high_pulse(&mut pulse_counter, &mut outputs);
+                            for output in outputs.get(&comp.name).unwrap() {
+                                stack.push_back(output.clone());
+                            }
+                        }
+                    },
+                    Component::FlipFlop(comp) => match pulse {
+                        Pulse::Low => {
+                            comp.low_pulse(&mut pulse_counter, &mut outputs);
+                            for output in outputs.get(&comp.name).unwrap() {
+                                stack.push_back(output.clone());
+                            }
+                        }
+                        Pulse::High => {
+                            comp.high_pulse(&mut pulse_counter, &mut outputs);
+                            // In this case nothing happens.
+                            // The component produce no new outputs so nothing should be pushed on the stack
+                        }
+                    },
+                    Component::Conjunction(comp) => match pulse {
+                        Pulse::Low => {
+                            comp.low_pulse(&mut pulse_counter, &mut outputs);
+                            for output in outputs.get(&comp.name).unwrap() {
+                                stack.push_back(output.clone());
+                            }
+                        }
+                        Pulse::High => {
+                            comp.high_pulse(&mut pulse_counter, &mut outputs);
+                            for output in outputs.get(&comp.name).unwrap() {
+                                stack.push_back(output.clone());
+                            }
+                        }
+                    },
+                }
+            }
+        }
     }
-}
-
-fn process_redirect_rule(wf_step: &WFStep, rule: &Rule) -> Vec<Option<WFStep>> {
-    let mut nwf_steps = Vec::new();
-    let mut nwf_step_ok = wf_step.clone();
-    nwf_step_ok.wf_name = rule.dest.clone();
-    nwf_step_ok.rule_index = 0;
-    nwf_steps.push(Some(nwf_step_ok));
-    nwf_steps
-}
-
-fn process_rate_rule(wf_step: &WFStep, rule: &Rule) -> Vec<Option<WFStep>> {
-    let mut nwf_steps = Vec::new();
-    let mut nwf_step_ok = wf_step.clone();
-    let mut nwf_step_ko = wf_step.clone();
-
-    // We return 2 x WFStep, one if the rule is ok and one if the rule is ko
-    // get_range return a mutable reference to the impacted range
-    let part_rate_ok = get_range(rule, &mut nwf_step_ok);
-    let part_rate_ko = get_range(rule, &mut nwf_step_ko);
-
-    // Initial range is 1..4001  note this is half open range 1 <= x < 4001
-    // If we split the range in 2 with x<2000
-    // we get 1..2000 and 2000..4001
-    // If x > 2000:
-    // we get 2001..4001 and 1..2001
-    if rule.op.unwrap() == Op::Inf {
-        let range = part_rate_ok.start..rule.value.unwrap();
-        *part_rate_ok = range;
-        let range = rule.value.unwrap()..part_rate_ko.end;
-        *part_rate_ko = range;
-    } else {
-        let range = rule.value.unwrap() + 1..part_rate_ok.end;
-        *part_rate_ok = range;
-        let range = part_rate_ko.start..rule.value.unwrap() + 1;
-        *part_rate_ko = range;
-    }
-
-    if Range::is_empty(part_rate_ok) {
-        nwf_steps.push(None);
-    } else {
-        nwf_step_ok.wf_name = rule.dest.clone();
-        nwf_step_ok.rule_index = 0;
-        nwf_steps.push(Some(nwf_step_ok));
-    }
-
-    if Range::is_empty(part_rate_ko) {
-        nwf_steps.push(None);
-    } else {
-        nwf_step_ko.rule_index += 1;
-        nwf_steps.push(Some(nwf_step_ko));
-    }
-    nwf_steps
-}
-
-fn get_range<'a>(rule: &'a Rule, nwf_step: &'a mut WFStep) -> &'a mut Range<usize> {
-    match rule.rate.unwrap() {
-        'x' => &mut nwf_step.part.x,
-        'm' => &mut nwf_step.part.m,
-        'a' => &mut nwf_step.part.a,
-        's' => &mut nwf_step.part.s,
-        _ => panic!("Unknown rule rate: {}", rule.rate.unwrap()),
-    }
+    dbg!(&pulse_counter);
+    pulse_counter.low * pulse_counter.high
 }
 
 fn main() {
@@ -287,54 +423,34 @@ mod tests {
     }
 
     #[test]
-    fn test_combinations() {
-        let part = Part {
-            x: 1..4001,
-            m: 1..4001,
-            a: 1..4001,
-            s: 1..4001,
-        };
-        let combinations = part.combinations();
-        assert_eq!(combinations, 4000 * 4000 * 4000 * 4000);
-    }
-    //
-    #[test]
-    fn test_combinations2() {
-        let part = Part {
-            x: 1..2001,
-            m: 2001..4001,
-            a: 1..4001,
-            s: 1..4001,
-        };
-        let combinations = part.combinations();
-        assert_eq!(combinations, 2000 * 2000 * 4000 * 4000);
-    }
-
-    #[test]
     fn test_run1() {
         let input = read_input(Some(indoc!(
             "
-            px{a<2006:qkq,m>2090:A,rfg}
-            pv{a>1716:R,A}
-            lnx{m>1548:A,A}
-            rfg{s<537:gd,x>2440:R,A}
-            qs{s>3448:A,lnx}
-            qkq{x<1416:A,crn}
-            crn{x>2662:A,R}
-            in{s<1351:px,qqz}
-            qqz{s>2770:qs,m<1801:hdj,R}
-            gd{a>3333:R,R}
-            hdj{m>838:A,pv}
-
-            {x=787,m=2655,a=1222,s=2876}
-            {x=1679,m=44,a=2067,s=496}
-            {x=2036,m=264,a=79,s=2244}
-            {x=2461,m=1339,a=466,s=291}
-            {x=2127,m=1623,a=2188,s=1013}
+            broadcaster -> a, b, c
+            %a -> b
+            %b -> c
+            %c -> inv
+            &inv -> a
             "
         )));
         dbg!(&input);
         let answer = run(input);
-        assert_eq!(answer, 167409079868000);
+        assert_eq!(answer, 32000000);
+    }
+
+    #[test]
+    fn test_run2() {
+        let input = read_input(Some(indoc!(
+            "
+            broadcaster -> a
+            %a -> inv, con
+            &inv -> b
+            %b -> con
+            &con -> output
+            "
+        )));
+        dbg!(&input);
+        let answer = run(input);
+        assert_eq!(answer, 11687500);
     }
 }
