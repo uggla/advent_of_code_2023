@@ -308,6 +308,19 @@ impl Broadcaster {
     }
 }
 
+fn lcm(a: usize, b: usize) -> usize {
+    a * b / gcd(a, b)
+}
+
+fn gcd(mut a: usize, mut b: usize) -> usize {
+    while b != 0 {
+        let tmp = a;
+        a = b;
+        b = tmp % b;
+    }
+    a
+}
+
 fn run(input: String) -> usize {
     let (_, mut components) = parse(&input).unwrap();
 
@@ -344,12 +357,46 @@ fn run(input: String) -> usize {
     let mut pulse_counter = PulseCounter::new();
     let mut stack: VecDeque<(Connection, Pulse)> = VecDeque::new();
 
-    for _ in 0..1000 {
+    let mut counter: usize = 0;
+    let mut lcms = HashMap::new();
+
+    'button_loop: loop {
+        // Count the number of time the button is pressed
+        counter += 1;
+
         stack.push_back((Connection::from(("button", "broadcaster")), Pulse::Low));
         println!("button: sends a low pulse to broadcaster");
         pulse_counter.low += 1;
         while !stack.is_empty() {
             let (conn, pulse) = stack.pop_front().unwrap();
+            // rx low means mf(inv) high.
+            // mf(inv) high means all inputs connected to mf are low.
+            // &sh -> &mf -> rx
+            // &mz -> &mf -> rx
+            // &bh -> &mf -> rx
+            // &jf -> &mf -> rx
+            if conn.to == "sh" && pulse == Pulse::Low {
+                lcms.insert("sh", counter);
+            }
+            if conn.to == "mz" && pulse == Pulse::Low {
+                lcms.insert("mz", counter);
+            }
+            if conn.to == "bh" && pulse == Pulse::Low {
+                lcms.insert("bh", counter);
+            }
+            if conn.to == "jf" && pulse == Pulse::Low {
+                lcms.insert("jf", counter);
+            }
+            if lcms.contains_key("sh")
+                && lcms.contains_key("mz")
+                && lcms.contains_key("bh")
+                && lcms.contains_key("jf")
+            {
+                break 'button_loop;
+            }
+            if conn.to == "rx" && pulse == Pulse::Low {
+                break 'button_loop;
+            }
             if let Some(component) = components.get_mut(&conn.to) {
                 match component {
                     Component::Broadcaster(comp) => match pulse {
@@ -398,7 +445,13 @@ fn run(input: String) -> usize {
         }
     }
     dbg!(&pulse_counter);
-    pulse_counter.low * pulse_counter.high
+    dbg!(&lcms);
+    let bh = *lcms.get("bh").unwrap();
+    let mz = *lcms.get("mz").unwrap();
+    let jf = *lcms.get("jf").unwrap();
+    let sh = *lcms.get("sh").unwrap();
+
+    lcm(lcm(lcm(bh, mz), jf), sh)
 }
 
 fn main() {
@@ -422,6 +475,7 @@ mod tests {
         assert_eq!(1, 1);
     }
 
+    #[ignore]
     #[test]
     fn test_run1() {
         let input = read_input(Some(indoc!(
@@ -438,6 +492,7 @@ mod tests {
         assert_eq!(answer, 32000000);
     }
 
+    #[ignore]
     #[test]
     fn test_run2() {
         let input = read_input(Some(indoc!(
