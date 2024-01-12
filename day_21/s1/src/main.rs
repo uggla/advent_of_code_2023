@@ -124,7 +124,7 @@ fn print_text_map(coordinates: &[(usize, usize, char)], width: usize, height: us
 }
 
 fn run(input: String) -> usize {
-    let (_, data) = parse(&input).unwrap();
+    let (_, mut data) = parse(&input).unwrap();
     dbg!(&data);
 
     print_text_map(
@@ -137,6 +137,42 @@ fn run(input: String) -> usize {
         data.length_y,
     );
 
+    let mut stack = Vec::new();
+    let start_pos = data.grid.iter().find(|c| c.1 == &'S').unwrap().0;
+    stack.push(*start_pos);
+    let mut counter = 0;
+
+    counter += 1;
+    let new_pos = data
+        .get_neighbours(pos)
+        .into_iter()
+        .filter_map(|x| x)
+        .filter_map(|o| if o.1 == '#' { None } else { Some(o) })
+        .collect::<Vec<(Coord, char)>>();
+
+    while !stack.is_empty() {
+        let pos = stack.pop().unwrap();
+        for p in new_pos {
+            stack.push(p.0);
+        }
+
+        if counter == 2 {
+            for c in stack.iter() {
+                *data.grid.get_mut(c).unwrap() = 'O';
+            }
+            break;
+        }
+    }
+
+    print_text_map(
+        &data
+            .grid
+            .iter()
+            .map(|c| (c.0.x as usize, c.0.y as usize, *c.1))
+            .collect::<Vec<(usize, usize, char)>>(),
+        data.length_x,
+        data.length_y,
+    );
     todo!();
 }
 
